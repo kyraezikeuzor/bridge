@@ -13,6 +13,12 @@
  *   npx tsx scripts/roundup-test.ts --audience affected
  *   npx tsx scripts/roundup-test.ts --audience affected --send
  *
+ * --limit caps how many are sent in one run, so a large audience can be
+ * spread over several hours instead of arriving as one burst. Each run reads
+ * the sent log first, so repeating the same command simply continues:
+ *
+ *   npx tsx scripts/roundup-test.ts --audience all-volunteers --send --limit 400
+ *
  * Without --send it is a dry run and nothing leaves the building.
  */
 import { config } from "dotenv";
@@ -60,8 +66,12 @@ async function main() {
   const live = args.includes("--send");
   const audienceFlag = args.indexOf("--audience");
   const audience = audienceFlag !== -1 ? args[audienceFlag + 1] : undefined;
+  const limitFlag = args.indexOf("--limit");
+  const limit =
+    limitFlag !== -1 ? Number(args[limitFlag + 1]) || undefined : undefined;
   const emails = args.filter(
-    (a, i) => !a.startsWith("--") && i !== audienceFlag + 1
+    (a, i) =>
+      !a.startsWith("--") && i !== audienceFlag + 1 && i !== limitFlag + 1
   );
 
   if (!audience && emails.length === 0) {
@@ -98,14 +108,20 @@ async function main() {
   console.log("");
 
   const alreadySent = readSentLog().sent.map((r) => r.email);
+  const sentSet = new Set(alreadySent.map((e) => e.toLowerCase()));
   if (alreadySent.length) {
-    console.log(`${alreadySent.length} address(es) already delivered — will be skipped.\n`);
+    console.log(`${alreadySent.length} address(es) already delivered — will be skipped.`);
   }
 
-  const results = await sendRoundup(recipients, {
-    dryRun: !live,
-    alreadySent,
-  });
+  // Trim to the batch BEFORE sending, counting only people who still need it,
+  // so --limit 400 means "400 more delivered" rather than "400 considered".
+  const outstanding = recipients.filter((r) => !sentSet.has(r.email.toLowerCase()));
+  const batch = limit !== undefined ? outstanding.slice(0, limit) : outstanding;
+  console.log(
+    `${outstanding.length} still outstanding; this run will attempt ${batch.length}.\n`
+  );
+
+  const results = await sendRoundup(batch, { dryRun: !live });
 
   if (live) {
     recordSent(
@@ -118,12 +134,15 @@ async function main() {
     console.log(`  ${r.status.padEnd(7)} ${r.email}${r.detail ? ` — ${r.detail}` : ""}`);
   }
 
-  const failed = results.filter((r) => r.status === "failed");
-  if (failed.length) {
+  const sentNow = results.filter((r) => r.status === "sent").length;
+  const remaining = outstanding.length - sentNow;
+  if (remaining > 0) {
     console.log(
-      `\n${failed.length} still undelivered. Re-run the same command to resume — ` +
-        `the ${results.filter((r) => r.status === "sent").length} sent this run are now logged and will be skipped.`
+      `\n${remaining} still to go. Re-run the same command for the next batch — ` +
+        `the ${sentNow} sent this run are logged and will be skipped.`
     );
+  } else if (live) {
+    console.log("\nEveryone in this audience has now been delivered to.");
   }
 
   if (!live) {

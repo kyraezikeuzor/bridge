@@ -43,6 +43,41 @@ const SEND_INTERVAL_MS = 600;
 /** The one People "Status" value that means a current volunteer. */
 const ACTIVE_STATUS = "Active";
 
+/**
+ * Domains that are unambiguous misspellings of a domain used by hundreds of
+ * other volunteers, found by edit-distance against the canonical domains in
+ * the roster. Mail to these always bounces, and bounce rate is what damages
+ * sender reputation — which is shared with Bridge's magic-link sign-ins.
+ *
+ * Note there is deliberately no "rare domain" filter behind this list: the
+ * worst offender, gmail.con, is shared by seven volunteers, which is exactly
+ * what made it look like a real domain on a first pass.
+ *
+ * These are data-entry errors in the People table. Skipping them here keeps a
+ * send clean; correcting the records is the actual fix — until then those
+ * volunteers receive nothing from Bridge at all, magic links included.
+ */
+const UNDELIVERABLE_DOMAINS = new Set([
+  "gmail.con",
+  "gamil.com",
+  "gmil.com",
+  "gmzil.com",
+  "gmail.cim",
+  "gmail.fom",
+  "gmail.comc",
+  "gmail.come",
+  "gmail.comk",
+  "gmail.coml",
+  "gmail.comt",
+  "gmail.comiy",
+  "icloud.con",
+  "lammersvilleusd.ent",
+]);
+
+function isUndeliverable(email: string): boolean {
+  return UNDELIVERABLE_DOMAINS.has(email.split("@")[1] ?? "");
+}
+
 function normalizeEmail(value: string): string {
   return value.trim().toLowerCase();
 }
@@ -64,6 +99,10 @@ export async function resolveRecipientsForEmails(
   for (const raw of emails) {
     const email = normalizeEmail(raw);
     if (!email || !isPlausibleEmail(email) || seen.has(email)) continue;
+    if (isUndeliverable(email)) {
+      console.warn(`[roundup] skipping undeliverable address: ${email}`);
+      continue;
+    }
     seen.add(email);
 
     // Personalize where we can; an unmatched address still gets the invite.
@@ -103,6 +142,10 @@ export async function resolveRoundupRecipients(
 
       const email = normalizeEmail(person.fields.Email ?? "");
       if (!email || !isPlausibleEmail(email) || seen.has(email)) continue;
+      if (isUndeliverable(email)) {
+        console.warn(`[roundup] skipping undeliverable address: ${email}`);
+        continue;
+      }
       seen.add(email);
 
       recipients.push({
