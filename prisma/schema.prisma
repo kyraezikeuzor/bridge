@@ -12,7 +12,11 @@ generator client {
 
 datasource db {
   provider = "postgresql"
+  // Pooled connection for queries; Neon fronts it with PgBouncer.
   url      = env("DATABASE_URL")
+  // Migrations need a direct connection — PgBouncer in transaction mode
+  // doesn't support the advisory locks and session state they rely on.
+  directUrl = env("DATABASE_URL_UNPOOLED")
 }
 
 model User {
