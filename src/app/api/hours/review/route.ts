@@ -11,6 +11,7 @@ import {
   patchHoursInCache,
   refreshHoursCache,
 } from "@/lib/hoursCache";
+import { emailLink } from "@/lib/links";
 import {
   sendHoursApprovedEmail,
   sendHoursRejectedEmail,
@@ -47,11 +48,11 @@ function parseHoursOverride(value: unknown): number | undefined {
 }
 
 function bridgeHoursUrl() {
-  const base =
-    process.env.AUTH_URL ||
-    process.env.NEXTAUTH_URL ||
-    "https://bridge.omelora.org";
-  return `${base.replace(/\/$/, "")}/summary`;
+  // Was built from AUTH_URL/NEXTAUTH_URL, which is http://localhost:3000 in
+  // development — so reviewing hours against a dev server emailed volunteers a
+  // "View Update" button pointing at localhost. Emailed links never come from
+  // auth config now; see lib/links.ts.
+  return emailLink("/summary");
 }
 
 /**
