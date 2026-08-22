@@ -1,22 +1,9 @@
 import type {
   Application,
   HoursRequest,
-  LeaderProfile,
   ReviewActivity,
 } from "@/lib/leader-types";
-
-export const currentLeader: LeaderProfile = {
-  id: "leader-1",
-  firstName: "Kyra",
-  lastName: "Ezikeuzor",
-  email: "kyra@omelora.org",
-  discord: "Keeks#7881",
-  birthday: "2007-01-12",
-  gender: "Female",
-  state: "Texas",
-  country: "United States",
-  joined: "2024-04-30",
-};
+import { DISCORD_INVITE_URL } from "@/lib/links";
 
 export const homeStats = {
   pendingApplications: 0,
@@ -150,7 +137,7 @@ export const quickLinks = [
     description: "Connect with the community",
     image:
       "https://images.fillout.com/orgid-737092/flowpublicid-uti4bix9xv/widgetid-default/u9F6PjJ6UZFHwmot9kMUfP/pasted-image-1782351628866-dlk3s59b.png",
-    href: "https://discord.gg/X9g8uYfnTW",
+    href: DISCORD_INVITE_URL,
   },
   {
     title: "Omelora Website",

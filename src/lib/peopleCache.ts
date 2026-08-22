@@ -3,8 +3,10 @@ import {
   fetchAllPeople,
   getPersonByEmailDirect,
   getPersonTemplateName,
+  updatePersonProfile,
   type Application,
   type Person,
+  type PersonProfileUpdate,
 } from "@/lib/airtable";
 
 export { getPersonTemplateName };
@@ -70,6 +72,15 @@ export async function refreshPeopleCache(): Promise<number> {
 }
 
 /**
+ * Every cached person, refreshing first when the cache is empty or stale.
+ * Used by bulk sends that need the whole roster rather than one lookup.
+ */
+export async function getAllPeople(): Promise<Person[]> {
+  if (isCacheStale()) await refreshPeopleCache();
+  return Array.from(peopleByEmail.values());
+}
+
+/**
  * Look up a person by email via the in-memory cache.
  * Refreshes from Airtable when the cache is empty or older than 5 minutes.
  */
@@ -115,4 +126,22 @@ export async function findOrCreatePersonByEmail(
   const created = await createPersonFromApplication(app);
   peopleByEmail.set(app.email.trim().toLowerCase(), created);
   return created;
+}
+
+/**
+ * Write a person's own profile edits to Airtable and refresh their cached
+ * copy, so the next read doesn't serve the pre-edit record for up to 5 minutes.
+ */
+export async function savePersonProfile(
+  id: string,
+  email: string,
+  update: PersonProfileUpdate
+): Promise<Person> {
+  const person = await updatePersonProfile(id, update);
+  const key = (person.fields.Email ?? email).trim().toLowerCase();
+  if (key) {
+    peopleByEmail.set(key, person);
+    console.log(`[peopleCache] updated cached record for "${key}"`);
+  }
+  return person;
 }
