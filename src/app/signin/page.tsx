@@ -9,6 +9,17 @@ const LOGO_URL =
 
 const APPLY_URL = "https://form.fillout.com/t/2VfsyEfiduus";
 
+/**
+ * Hides the Google button until the provider is actually wired up. auth.ts
+ * only registers the Resend email provider, so signIn("google") would fail
+ * even though GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET are set.
+ *
+ * To enable: register Google in auth.ts, add
+ * https://bridge.omelora.org/api/auth/callback/google as an authorized
+ * redirect URI in the Google Cloud console, then flip this to true.
+ */
+const GOOGLE_SIGN_IN_ENABLED: boolean = false;
+
 function GoogleIcon() {
   return (
     <svg className="h-5 w-5 shrink-0" viewBox="0 0 24 24" aria-hidden="true">
@@ -110,25 +121,30 @@ export default function SignInPage() {
             </div>
           ) : (
             <>
-              <Button
-                type="button"
-                variant="outline"
-                size="lg"
-                className="w-full gap-3 bg-background font-medium"
-                disabled
-                title="Google sign-in coming soon"
-              >
-                <GoogleIcon />
-                Sign in with Google
-              </Button>
+              {GOOGLE_SIGN_IN_ENABLED ? (
+                <>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="lg"
+                    className="w-full gap-3 bg-background font-medium"
+                    onClick={() =>
+                      void signIn("google", { callbackUrl: "/dashboard" })
+                    }
+                  >
+                    <GoogleIcon />
+                    Sign in with Google
+                  </Button>
 
-              <div className="flex items-center gap-3">
-                <div className="h-px flex-1 bg-border" />
-                <span className="shrink-0 text-xs text-muted-foreground">
-                  or use email
-                </span>
-                <div className="h-px flex-1 bg-border" />
-              </div>
+                  <div className="flex items-center gap-3">
+                    <div className="h-px flex-1 bg-border" />
+                    <span className="shrink-0 text-xs text-muted-foreground">
+                      or use email
+                    </span>
+                    <div className="h-px flex-1 bg-border" />
+                  </div>
+                </>
+              ) : null}
 
               <form onSubmit={handleContinue} className="flex flex-col gap-5">
                 <Input
