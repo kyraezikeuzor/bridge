@@ -249,6 +249,7 @@ async function runApproveFollowup(app: Application, replyText?: string) {
       school: app.school,
       state: app.state,
       country: app.country,
+      startDate: app.fields["Review Date"],
     });
     console.log(
       "[applications/review] People History created — person:",
