@@ -1,10 +1,50 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useSession } from "next-auth/react";
 import { RefreshCw } from "lucide-react";
 import { Button, Input } from "@omelora/sunrise";
-import { currentUser } from "@/data/session";
-import type { AppUser } from "@/data/session";
+import { useToast } from "@/components/ToastProvider";
+import { useCachedResource } from "@/lib/useCachedResource";
+
+type Profile = {
+  id: string;
+  role: string | null;
+  firstName: string;
+  lastName: string;
+  email: string;
+  discord: string;
+  birthday: string;
+  gender: string;
+  state: string;
+  country: string;
+  joined: string;
+};
+
+const EMPTY_PROFILE: Profile = {
+  id: "",
+  role: null,
+  firstName: "",
+  lastName: "",
+  email: "",
+  discord: "",
+  birthday: "",
+  gender: "",
+  state: "",
+  country: "",
+  joined: "",
+};
+
+const GENDER_OPTIONS = ["Female", "Male", "Other"];
+const COUNTRY_OPTIONS = ["United States", "Canada", "Nigeria"];
+
+/**
+ * Airtable may hold a value this app's list doesn't offer. Surface it as an
+ * option instead of letting the select silently rewrite it on the next save.
+ */
+function withCurrent(options: string[], current: string) {
+  return current && !options.includes(current) ? [current, ...options] : options;
+}
 
 function formatDate(iso?: string) {
   if (!iso) return "—";
@@ -29,9 +69,38 @@ function ProfileField({ label, value }: { label: string; value?: string }) {
 }
 
 export default function ProfilePage() {
-  const [profile, setProfile] = useState<AppUser>(currentUser);
+  const { data: session, status: sessionStatus } = useSession();
+  const { push: toast } = useToast();
+  const personId = session?.user?.personId || "";
+
+  const {
+    data,
+    setData,
+    loading,
+    refreshing,
+    refresh,
+  } = useCachedResource<Profile>(
+    `profile:${personId || session?.user?.email || "anon"}`,
+    async () => {
+      const res = await fetch("/api/profile");
+      const body = await res.json();
+      if (!res.ok) throw new Error(body.error || "Failed to load profile");
+      return body as Profile;
+    },
+    {
+      enabled: sessionStatus === "authenticated",
+      onError: (err) => console.error("[profile]", err),
+    }
+  );
+
+  const profile = data ?? {
+    ...EMPTY_PROFILE,
+    firstName: session?.user?.firstName ?? "",
+    lastName: session?.user?.lastName ?? "",
+    email: session?.user?.email ?? "",
+  };
+
   const [editing, setEditing] = useState(false);
-  const [refreshing, setRefreshing] = useState(false);
   const [saving, setSaving] = useState(false);
 
   const [discord, setDiscord] = useState(profile.discord);
@@ -40,10 +109,15 @@ export default function ProfilePage() {
   const [state, setState] = useState(profile.state);
   const [country, setCountry] = useState(profile.country);
 
-  const handleRefresh = () => {
-    setRefreshing(true);
-    window.setTimeout(() => setRefreshing(false), 600);
-  };
+  // Keep the (closed) edit form in step with whatever the fetch returned.
+  useEffect(() => {
+    if (!data || editing) return;
+    setDiscord(data.discord);
+    setBirthday(data.birthday);
+    setGender(data.gender);
+    setState(data.state);
+    setCountry(data.country);
+  }, [data, editing]);
 
   const startEdit = () => {
     setDiscord(profile.discord);
@@ -54,21 +128,32 @@ export default function ProfilePage() {
     setEditing(true);
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     setSaving(true);
-    window.setTimeout(() => {
-      setProfile((prev) => ({
-        ...prev,
-        discord,
-        birthday,
-        gender,
-        state,
-        country,
-      }));
-      setSaving(false);
+    try {
+      const res = await fetch("/api/profile", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ discord, birthday, gender, state, country }),
+      });
+      const body = await res.json();
+      if (!res.ok) throw new Error(body.error || "Failed to save profile");
+
+      setData(body as Profile);
       setEditing(false);
-    }, 400);
+      toast("Profile updated");
+    } catch (err) {
+      console.error("[profile] save failed", err);
+      toast(
+        err instanceof Error ? err.message : "Failed to save profile",
+        "error"
+      );
+    } finally {
+      setSaving(false);
+    }
   };
+
+  const showSkeleton = sessionStatus === "loading" || (loading && !data);
 
   return (
     <div className="mx-auto flex max-w-xl flex-col gap-8 px-6 py-10 sm:px-10 sm:py-14">
@@ -81,8 +166,8 @@ export default function ProfilePage() {
             type="button"
             variant="outline"
             size="sm"
-            onClick={handleRefresh}
-            disabled={refreshing}
+            onClick={() => refresh()}
+            disabled={refreshing || showSkeleton}
           >
             Refresh
             <RefreshCw
@@ -90,14 +175,23 @@ export default function ProfilePage() {
             />
           </Button>
           {!editing ? (
-            <Button type="button" variant="outline" onClick={startEdit}>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={startEdit}
+              disabled={showSkeleton}
+            >
               Edit
             </Button>
           ) : null}
         </div>
       </div>
 
-      {editing ? (
+      {showSkeleton ? (
+        <div className="rounded-xl border-2 border-border bg-background p-6 text-sm text-muted-foreground">
+          Loading your profile…
+        </div>
+      ) : editing ? (
         <div className="flex flex-col gap-5">
           <Input
             label="Email"
@@ -149,9 +243,12 @@ export default function ProfilePage() {
               onChange={(e) => setGender(e.target.value)}
               className="flex h-10 w-full rounded-lg border border-border bg-background px-3 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
-              <option value="Female">Female</option>
-              <option value="Male">Male</option>
-              <option value="Other">Other</option>
+              <option value="">—</option>
+              {withCurrent(GENDER_OPTIONS, gender).map((option) => (
+                <option key={option} value={option}>
+                  {option}
+                </option>
+              ))}
             </select>
           </div>
           <div className="grid grid-cols-2 gap-4">
@@ -174,9 +271,12 @@ export default function ProfilePage() {
                 onChange={(e) => setCountry(e.target.value)}
                 className="flex h-10 w-full rounded-lg border border-border bg-background px-3 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
-                <option value="United States">United States</option>
-                <option value="Canada">Canada</option>
-                <option value="Nigeria">Nigeria</option>
+                <option value="">—</option>
+                {withCurrent(COUNTRY_OPTIONS, country).map((option) => (
+                  <option key={option} value={option}>
+                    {option}
+                  </option>
+                ))}
               </select>
             </div>
           </div>

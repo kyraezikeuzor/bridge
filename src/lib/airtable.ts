@@ -244,6 +244,43 @@ export async function getPersonByEmailDirect(
   return mapPersonRecord(record);
 }
 
+/** Profile fields a person may edit about themselves. */
+export interface PersonProfileUpdate {
+  discord?: string | null;
+  birthday?: string | null;
+  gender?: string | null;
+  state?: string | null;
+  country?: string | null;
+}
+
+/**
+ * Patch the self-editable fields on a People record.
+ * Only keys present in `update` are sent; `null` clears the field.
+ */
+export async function updatePersonProfile(
+  id: string,
+  update: PersonProfileUpdate
+): Promise<Person> {
+  const fields: Record<string, unknown> = {};
+  if (update.discord !== undefined) fields.Discord = update.discord;
+  if (update.birthday !== undefined) fields.Birthday = update.birthday;
+  if (update.gender !== undefined) fields.Gender = update.gender;
+  if (update.state !== undefined) fields.State = update.state;
+  if (update.country !== undefined) fields.Country = update.country;
+
+  const record = await updateRecord("People", id, fields);
+  const raw = record as {
+    id: string;
+    createdTime?: string;
+    fields: PersonFields;
+  };
+  return mapPersonRecord({
+    id: raw.id,
+    createdTime: raw.createdTime ?? "",
+    fields: raw.fields,
+  });
+}
+
 export async function getPersonById(id: string): Promise<Person | null> {
   const { apiKey, baseId } = getConfig();
   const url = `${AIRTABLE_API_URL}/${baseId}/People/${id}`;

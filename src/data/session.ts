@@ -14,21 +14,6 @@ export interface AppUser {
   joined: string;
 }
 
-/** Active session user — currently set to volunteer. */
-export const currentUser: AppUser = {
-  id: "user-1",
-  role: "volunteer",
-  firstName: "Kyra",
-  lastName: "Ezikeuzor",
-  email: "kyraezikeuzor@gmail.com",
-  discord: "Keeks#7881",
-  birthday: "2007-01-12",
-  gender: "Female",
-  state: "Texas",
-  country: "United States",
-  joined: "",
-};
-
 export const HOURS_REQUEST_FORM_URL = "https://form.fillout.com/t/eL6dML97A7us";
 export const CLAIM_ACTIVITIES_URL = "https://activities.omelora.org";
 export const SUBMIT_WORK_FORM_URL =
