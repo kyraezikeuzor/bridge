@@ -1,22 +1,8 @@
 import type {
   Application,
   HoursRequest,
-  LeaderProfile,
   ReviewActivity,
 } from "@/lib/leader-types";
-
-export const currentLeader: LeaderProfile = {
-  id: "leader-1",
-  firstName: "Kyra",
-  lastName: "Ezikeuzor",
-  email: "kyra@omelora.org",
-  discord: "Keeks#7881",
-  birthday: "2007-01-12",
-  gender: "Female",
-  state: "Texas",
-  country: "United States",
-  joined: "2024-04-30",
-};
 
 export const homeStats = {
   pendingApplications: 0,

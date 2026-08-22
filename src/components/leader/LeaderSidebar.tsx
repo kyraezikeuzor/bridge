@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { signOut, useSession } from "next-auth/react";
 import {
   CircleCheck,
   Clock,
@@ -11,7 +12,6 @@ import {
   Zap,
 } from "lucide-react";
 import { Button } from "@omelora/sunrise";
-import { currentLeader } from "@/data/leader-mock";
 
 const LOGO_URL =
   "https://images.fillout.com/orgid-737092/flowpublicid-uti4bix9xv/widgetid-default/uLyhUKhp6oTaSjVFoLd2M8/LOGO.png";
@@ -26,8 +26,15 @@ const leaderNav = [
 
 export function LeaderSidebar() {
   const pathname = usePathname();
-  const initials = `${currentLeader.firstName[0] ?? ""}${currentLeader.lastName[0] ?? ""}`.toUpperCase();
-  const displayName = `${currentLeader.firstName} ${currentLeader.lastName}`;
+  const { data: session } = useSession();
+
+  const firstName = session?.user?.firstName ?? "";
+  const lastName = session?.user?.lastName ?? "";
+  const email = session?.user?.email ?? "";
+
+  const initials =
+    `${firstName[0] ?? ""}${lastName[0] ?? ""}`.toUpperCase() || "?";
+  const displayName = [firstName, lastName].filter(Boolean).join(" ") || "Member";
 
   return (
     <aside className="flex h-screen w-[260px] shrink-0 sticky top-0 flex-col border-r border-border bg-background">
@@ -87,20 +94,19 @@ export function LeaderSidebar() {
               {displayName}
             </p>
             <p className="truncate text-xs text-muted-foreground">
-              {currentLeader.email}
+              {email}
             </p>
           </div>
         </div>
-        <Link href="/signin">
-          <Button
-            type="button"
-            variant="outline"
-            className="w-full justify-center gap-2 bg-muted/40"
-          >
-            Sign out
-            <LogOut className="h-4 w-4" />
-          </Button>
-        </Link>
+        <Button
+          type="button"
+          variant="outline"
+          className="w-full justify-center gap-2 bg-muted/40"
+          onClick={() => signOut({ callbackUrl: "/signin" })}
+        >
+          Sign out
+          <LogOut className="h-4 w-4" />
+        </Button>
       </div>
     </aside>
   );
