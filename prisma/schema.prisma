@@ -1,4 +1,9 @@
-// Auth.js / NextAuth models + SQLite for verification tokens
+// Auth.js / NextAuth models. Backs magic-link sign-in only — the app's real
+// data (people, hours, applications, activities) lives in Airtable.
+//
+// Postgres rather than SQLite: the magic-link provider has to write a
+// VerificationToken on request and read it back when the link is clicked, and
+// serverless hosts give each invocation a fresh, read-only filesystem.
 // https://authjs.dev/getting-started/adapters/prisma
 
 generator client {
@@ -6,7 +11,7 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
