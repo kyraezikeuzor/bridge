@@ -150,7 +150,7 @@ export const quickLinks = [
     description: "Connect with the community",
     image:
       "https://images.fillout.com/orgid-737092/flowpublicid-uti4bix9xv/widgetid-default/u9F6PjJ6UZFHwmot9kMUfP/pasted-image-1782351628866-dlk3s59b.png",
-    href: "https://discord.gg/X9g8uYfnTW",
+    href: "https://discord.gg/VfARrtgpHG",
   },
   {
     title: "Omelora Website",

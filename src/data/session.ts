@@ -44,7 +44,7 @@ export const volunteerQuickLinks = [
   {
     title: "Launch Discord",
     description: "Connect with the community",
-    href: "https://discord.gg/X9g8uYfnTW",
+    href: "https://discord.gg/VfARrtgpHG",
     icon: "discord" as const,
   },
   {
