@@ -1,3 +1,5 @@
+import { DISCORD_INVITE_URL } from "@/lib/links";
+
 export type UserRole = "volunteer" | "leader";
 
 export interface AppUser {
@@ -29,7 +31,7 @@ export const volunteerQuickLinks = [
   {
     title: "Launch Discord",
     description: "Connect with the community",
-    href: "https://discord.gg/VfARrtgpHG",
+    href: DISCORD_INVITE_URL,
     icon: "discord" as const,
   },
   {

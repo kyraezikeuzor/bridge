@@ -3,6 +3,7 @@ import type {
   HoursRequest,
   ReviewActivity,
 } from "@/lib/leader-types";
+import { DISCORD_INVITE_URL } from "@/lib/links";
 
 export const homeStats = {
   pendingApplications: 0,
@@ -136,7 +137,7 @@ export const quickLinks = [
     description: "Connect with the community",
     image:
       "https://images.fillout.com/orgid-737092/flowpublicid-uti4bix9xv/widgetid-default/u9F6PjJ6UZFHwmot9kMUfP/pasted-image-1782351628866-dlk3s59b.png",
-    href: "https://discord.gg/VfARrtgpHG",
+    href: DISCORD_INVITE_URL,
   },
   {
     title: "Omelora Website",

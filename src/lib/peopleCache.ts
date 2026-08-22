@@ -72,6 +72,15 @@ export async function refreshPeopleCache(): Promise<number> {
 }
 
 /**
+ * Every cached person, refreshing first when the cache is empty or stale.
+ * Used by bulk sends that need the whole roster rather than one lookup.
+ */
+export async function getAllPeople(): Promise<Person[]> {
+  if (isCacheStale()) await refreshPeopleCache();
+  return Array.from(peopleByEmail.values());
+}
+
+/**
  * Look up a person by email via the in-memory cache.
  * Refreshes from Airtable when the cache is empty or older than 5 minutes.
  */

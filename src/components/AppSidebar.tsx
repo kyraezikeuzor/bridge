@@ -9,6 +9,7 @@ import {
   Clock,
   Home,
   LogOut,
+  Mail,
   PlusCircle,
   Upload,
   UserCog,
@@ -34,6 +35,7 @@ const leaderNav = [
   { label: "Review Applications", icon: CircleCheck, path: "/review-applications" },
   { label: "Review Hours", icon: Clock, path: "/review-hours" },
   { label: "Review Activities", icon: Zap, path: "/review-activities" },
+  { label: "Volunteer Roundup", icon: Mail, path: "/roundup" },
   { label: "My Profile", icon: UserCog, path: "/profile" },
 ];
 

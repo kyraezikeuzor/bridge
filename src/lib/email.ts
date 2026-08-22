@@ -10,6 +10,7 @@ export const EMAIL_TEMPLATE_ALIASES = {
   hoursApproved: "hours-approved",
   hoursRejected: "hours-rejected",
   commentReply: "comment-reply",
+  volunteerRoundup: "volunteer-roundup",
 } as const;
 
 function getResend() {
@@ -238,6 +239,41 @@ export async function sendCommentReplyEmail(
       firstName,
       applicantMessage,
       replyMessage,
+    },
+  });
+}
+
+/**
+ * Send the volunteer roundup email — a roster-wide note carrying the current
+ * Discord invite.
+ *
+ * Copy is deliberately neutral rather than an apology: it goes to every
+ * volunteer, most of whom never received the dead invite and would be confused
+ * by an apology for an email they never got.
+ *
+ * Template alias: "volunteer-roundup" — expects {{firstName}}, {{discordUrl}}.
+ */
+export async function sendVolunteerRoundupEmail(
+  to: string,
+  firstName: string,
+  discordUrl: string
+) {
+  // firstName is "" when we have no name on file. Personalize the subject only
+  // when we actually have one — "…, there" reads as a broken mail merge.
+  const name = firstName.trim();
+  const subject = name
+    ? `Your new Omelora Discord invite, ${name}`
+    : "Your new Omelora Discord invite";
+
+  return sendTemplateEmail({
+    label: "volunteer-roundup",
+    to,
+    subject,
+    templateId: EMAIL_TEMPLATE_ALIASES.volunteerRoundup,
+    variables: {
+      // The body greeting still needs something to address.
+      firstName: name || "there",
+      discordUrl,
     },
   });
 }
