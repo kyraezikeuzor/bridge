@@ -1,0 +1,31 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  @apply bg-background text-foreground antialiased;
+}
+
+/* Print only the hours certificate, never the surrounding app chrome. */
+@media print {
+  body * {
+    visibility: hidden !important;
+  }
+
+  #hours-certificate,
+  #hours-certificate * {
+    visibility: visible !important;
+  }
+
+  #hours-certificate {
+    display: block !important;
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+  }
+
+  @page {
+    margin: 0.5in;
+  }
+}
