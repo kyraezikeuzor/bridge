@@ -74,8 +74,23 @@ const UNDELIVERABLE_DOMAINS = new Set([
   "lammersvilleusd.ent",
 ]);
 
+/** Mailbox providers whose name sometimes gets glued onto another domain. */
+const PROVIDER_DOMAINS = [
+  "gmail.com",
+  "icloud.com",
+  "yahoo.com",
+  "outlook.com",
+  "hotmail.com",
+];
+
 function isUndeliverable(email: string): boolean {
-  return UNDELIVERABLE_DOMAINS.has(email.split("@")[1] ?? "");
+  const domain = email.split("@")[1] ?? "";
+  if (UNDELIVERABLE_DOMAINS.has(domain)) return true;
+
+  // e.g. "superior.edu.pk.gmail.com" — someone appended their provider to an
+  // institutional address. Always bounces, and edit distance never catches it
+  // because the prefix makes the string far from the real domain.
+  return PROVIDER_DOMAINS.some((p) => domain !== p && domain.endsWith(`.${p}`));
 }
 
 function normalizeEmail(value: string): string {
