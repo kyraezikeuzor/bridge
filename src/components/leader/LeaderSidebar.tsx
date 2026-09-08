@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { signOut, useSession } from "next-auth/react";
 import {
+  ClipboardList,
   CircleCheck,
   Clock,
   Home,
@@ -20,6 +21,7 @@ const leaderNav = [
   { label: "Home", icon: Home, path: "/dashboard" },
   { label: "Review Applications", icon: CircleCheck, path: "/review-applications" },
   { label: "Review Hours", icon: Clock, path: "/review-hours" },
+  { label: "Review Contributions", icon: ClipboardList, path: "/review-contributions" },
   { label: "Review Activities", icon: Zap, path: "/review-activities" },
   { label: "My Profile", icon: UserCog, path: "/profile" },
 ];

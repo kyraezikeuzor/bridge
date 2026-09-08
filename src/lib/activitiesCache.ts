@@ -1,7 +1,8 @@
 import {
   fetchAllActivities,
-  fetchActivitiesForPerson,
+  fetchClaimedActivitiesForPerson,
   type Activity,
+  type ClaimedActivity,
 } from "@/lib/airtable";
 
 const CACHE_TTL_MS = 5 * 60 * 1000;
@@ -63,13 +64,13 @@ async function ensureFresh() {
  */
 export async function getPersonActivities(
   personId: string
-): Promise<Activity[]> {
+): Promise<ClaimedActivity[]> {
   console.log(
     "[activitiesCache] getPersonActivities personId from session/API:",
     personId
   );
 
-  const claimed = await fetchActivitiesForPerson(personId);
+  const claimed = await fetchClaimedActivitiesForPerson(personId);
 
   console.log(
     `[activitiesCache] getPersonActivities("${personId}") → ${claimed.length} activities after linked-record resolve`

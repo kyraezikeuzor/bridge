@@ -6,6 +6,7 @@ import {
   slotsFilled,
 } from "@/lib/activities";
 import type { Activity } from "@/lib/types";
+import { textColor, typography } from "@/styles/typography";
 
 export function ActivityBoardCard({ activity }: { activity: Activity }) {
   const filled = slotsFilled(activity.signUps);
@@ -15,11 +16,11 @@ export function ActivityBoardCard({ activity }: { activity: Activity }) {
     <Link href={`/activities/${activity.slug}`} className="block">
       <Card
         variant="outline"
-        className="h-full border-2 transition-colors hover:border-primary"
+        className="h-full border-2 transition-colors hover:border-[#9A9A9A] hover:bg-muted/50"
       >
         <CardHeader className="mb-3">
           <div className="flex items-start justify-between gap-2">
-            <CardTitle className="text-base leading-snug">{activity.title}</CardTitle>
+            <CardTitle className={typography.cardTitle}>{activity.title}</CardTitle>
             <Badge variant={status === "full" ? "warning" : "success"} size="sm">
               {status === "full" ? "Full" : "Open"}
             </Badge>
@@ -31,25 +32,25 @@ export function ActivityBoardCard({ activity }: { activity: Activity }) {
           </div>
         </CardHeader>
         <CardContent className="space-y-3">
-          <p className="line-clamp-3 text-sm text-muted-foreground">
+          <p className={`line-clamp-3 ${typography.bodySmall} ${textColor.secondary}`}>
             {activity.description}
           </p>
-          <dl className="space-y-1.5 text-sm">
+          <dl className={`space-y-1.5 ${typography.metadata}`}>
             <div className="flex justify-between gap-3">
-              <dt className="text-muted-foreground">Location</dt>
-              <dd className="text-right font-medium text-foreground">
+              <dt className={textColor.secondary}>Location</dt>
+              <dd className={`text-right font-medium ${textColor.primary}`}>
                 {activity.location}
               </dd>
             </div>
             <div className="flex justify-between gap-3">
-              <dt className="text-muted-foreground">Deadline</dt>
-              <dd className="text-right font-medium text-foreground">
+              <dt className={textColor.secondary}>Deadline</dt>
+              <dd className={`text-right font-medium ${textColor.primary}`}>
                 {formatDeadline(activity.deadline)}
               </dd>
             </div>
             <div className="flex justify-between gap-3">
-              <dt className="text-muted-foreground">Slots</dt>
-              <dd className="text-right font-medium text-foreground">
+              <dt className={textColor.secondary}>Slots</dt>
+              <dd className={`text-right font-medium ${textColor.primary}`}>
                 {filled}/{activity.slotsTotal} filled
               </dd>
             </div>

@@ -7,6 +7,11 @@
     "build": "prisma generate && prisma migrate deploy && next build",
     "start": "next start",
     "lint": "next lint",
+    "bridge:backfill-claims": "node scripts/backfill-claims.mjs",
+    "bridge:backfill-contributions": "node scripts/backfill-contributions-from-hours.mjs",
+    "bridge:backfill-contribution-work-dates": "node scripts/backfill-contribution-work-dates-from-hours.mjs",
+    "bridge:setup-contributions": "node scripts/setup-contributions.mjs",
+    "bridge:setup-activity-completion-config": "node scripts/setup-activity-completion-config.mjs",
     "postinstall": "prisma generate"
   },
   "dependencies": {

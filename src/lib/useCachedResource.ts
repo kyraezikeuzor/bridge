@@ -41,25 +41,31 @@ export function useCachedResource<T>(
   // Hold the latest callbacks without making them effect dependencies, so an
   // inline fetcher/handler doesn't retrigger the load on every render.
   const fetcherRef = useRef(fetcher);
-  fetcherRef.current = fetcher;
   const onErrorRef = useRef(options?.onError);
-  onErrorRef.current = options?.onError;
   const onSuccessRef = useRef(options?.onSuccess);
-  onSuccessRef.current = options?.onSuccess;
+
+  useEffect(() => {
+    fetcherRef.current = fetcher;
+    onErrorRef.current = options?.onError;
+    onSuccessRef.current = options?.onSuccess;
+  }, [fetcher, options?.onError, options?.onSuccess]);
+
+  useEffect(() => {
+    if (data !== undefined) store.set(key, data);
+  }, [data, key]);
 
   /** Update both React state and the persistent cache. */
   const setData = useCallback(
     (updater: T | ((prev: T) => T)) => {
       setDataState((prev) => {
-        const next =
+        return (
           typeof updater === "function"
             ? (updater as (p: T) => T)(prev as T)
-            : updater;
-        store.set(key, next);
-        return next;
+            : updater
+        );
       });
     },
-    [key]
+    []
   );
 
   const run = useCallback(
@@ -68,7 +74,6 @@ export function useCachedResource<T>(
       else setLoading(true);
       try {
         const next = await fetcherRef.current();
-        store.set(key, next);
         setDataState(next);
         onSuccessRef.current?.(next);
       } catch (error) {
@@ -78,7 +83,7 @@ export function useCachedResource<T>(
         setRefreshing(false);
       }
     },
-    [key]
+    []
   );
 
   useEffect(() => {

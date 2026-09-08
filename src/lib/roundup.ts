@@ -109,7 +109,7 @@ export async function resolveRecipientsForEmails(
   emails: readonly string[]
 ): Promise<RoundupRecipient[]> {
   const seen = new Set<string>();
-  const recipients: RoundupRecipient[] = [];
+  const uniqueEmails: string[] = [];
 
   for (const raw of emails) {
     const email = normalizeEmail(raw);
@@ -119,18 +119,21 @@ export async function resolveRecipientsForEmails(
       continue;
     }
     seen.add(email);
-
-    // Personalize where we can; an unmatched address still gets the invite.
-    const person = await getPersonByEmail(email);
-    recipients.push({
-      email,
-      firstName: person?.fields["First Name"]?.trim() || "",
-      personId: person?.id ?? null,
-      matched: person !== null,
-    });
+    uniqueEmails.push(email);
   }
 
-  return recipients;
+  return Promise.all(
+    uniqueEmails.map(async (email) => {
+      // Personalize where we can; an unmatched address still gets the invite.
+      const person = await getPersonByEmail(email);
+      return {
+        email,
+        firstName: person?.fields["First Name"]?.trim() || "",
+        personId: person?.id ?? null,
+        matched: person !== null,
+      };
+    })
+  );
 }
 
 /**

@@ -1,26 +1,19 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { getPersonActivities } from "@/lib/activitiesCache";
 
 export const dynamic = "force-dynamic";
 
-/** GET /api/person-activities?personId=... (defaults to session personId) */
-export async function GET(request: NextRequest) {
+/** GET /api/person-activities — always scoped to the signed-in person. */
+export async function GET() {
   try {
     const session = await auth();
-    const sessionPersonId = session?.user?.personId || "";
-    const queryPersonId = request.nextUrl.searchParams.get("personId") || "";
-    const personId = queryPersonId || sessionPersonId;
-
-    console.log("[api/person-activities] session.user:", session?.user);
-    console.log("[api/person-activities] personId from session:", sessionPersonId);
-    console.log("[api/person-activities] personId query param:", queryPersonId);
-    console.log("[api/person-activities] personId used:", personId);
+    const personId = session?.user?.personId || "";
 
     if (!personId) {
       return NextResponse.json(
-        { error: "Missing personId (sign in required)" },
-        { status: 400 }
+        { error: "Sign in is required" },
+        { status: 401 }
       );
     }
 

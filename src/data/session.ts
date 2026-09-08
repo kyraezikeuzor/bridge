@@ -29,33 +29,21 @@ export const volunteerStats = {
 
 export const volunteerQuickLinks = [
   {
-    title: "Launch Discord",
-    description: "Connect with the community",
-    href: DISCORD_INVITE_URL,
-    icon: "discord" as const,
+    title: "Volunteer Activities Board",
+    description: "Browse new activities to claim",
+    href: CLAIM_ACTIVITIES_URL,
+    icon: "zap" as const,
   },
   {
-    title: "Omelora Website",
-    description: "Visit our main site",
-    href: "https://omelora.org",
-    icon: "globe" as const,
+    title: "Discord Community",
+    description: "Connect with more volunteers",
+    href: DISCORD_INVITE_URL,
+    icon: "discord" as const,
   },
   {
     title: "Volunteer Starter Guide",
     description: "Guidelines, policies & FAQs",
     href: "https://docs.google.com/document/d/13IkUv86rqqOoMiHfIYpD14Gnfx3fIHxws4kL3N7ywqw/edit?usp=sharing",
     icon: "book" as const,
-  },
-  {
-    title: "Volunteer Activities Board",
-    description: "Open activities.omelora.org to claim a task",
-    href: CLAIM_ACTIVITIES_URL,
-    icon: "zap" as const,
-  },
-  {
-    title: "Request Hours Form",
-    description: "Submit volunteer hours for review",
-    href: HOURS_REQUEST_FORM_URL,
-    icon: "clipboard" as const,
   },
 ];

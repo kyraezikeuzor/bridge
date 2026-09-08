@@ -10,23 +10,20 @@ import {
   Home,
   LogOut,
   Mail,
-  PlusCircle,
-  Upload,
   UserCog,
   Zap,
 } from "lucide-react";
 import { Button } from "@omelora/sunrise";
 import { isLeaderRole } from "@/lib/roles";
+import { textColor, typography } from "@/styles/typography";
 
 const LOGO_URL =
   "https://images.fillout.com/orgid-737092/flowpublicid-uti4bix9xv/widgetid-default/uLyhUKhp6oTaSjVFoLd2M8/LOGO.png";
 
 const volunteerNav = [
   { label: "Home", icon: Home, path: "/dashboard" },
-  { label: "Claim Activities", icon: Zap, path: "/claim" },
-  { label: "Submit Work", icon: Upload, path: "/submit-work" },
-  { label: "Request Hours", icon: PlusCircle, path: "/request" },
-  { label: "Hours Summary", icon: ClipboardList, path: "/summary" },
+  { label: "Activities", icon: Zap, path: "/activities" },
+  { label: "Hours", icon: ClipboardList, path: "/summary" },
   { label: "My Profile", icon: UserCog, path: "/profile" },
 ];
 
@@ -34,6 +31,7 @@ const leaderNav = [
   { label: "Home", icon: Home, path: "/dashboard" },
   { label: "Review Applications", icon: CircleCheck, path: "/review-applications" },
   { label: "Review Hours", icon: Clock, path: "/review-hours" },
+  { label: "Review Contributions", icon: ClipboardList, path: "/review-contributions" },
   { label: "Review Activities", icon: Zap, path: "/review-activities" },
   { label: "Volunteer Roundup", icon: Mail, path: "/roundup" },
   { label: "My Profile", icon: UserCog, path: "/profile" },
@@ -54,7 +52,7 @@ export function AppSidebar() {
   const displayName = [firstName, lastName].filter(Boolean).join(" ") || "Member";
 
   return (
-    <aside className="sticky top-0 flex h-screen w-[260px] shrink-0 flex-col border-r border-border bg-background">
+    <aside className="sticky top-0 hidden h-screen w-[260px] shrink-0 flex-col border-r border-border bg-background md:flex">
       <div className="flex items-center gap-3 px-6 pb-4 pt-6">
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
@@ -63,10 +61,10 @@ export function AppSidebar() {
           className="h-10 w-10 rounded-lg object-cover"
         />
         <div className="min-w-0">
-          <span className="block text-xl font-bold leading-tight text-[#3F3F3F]">
+          <span className={`block ${typography.sectionTitle} ${textColor.primary}`}>
             Bridge
           </span>
-          <span className="block text-sm text-[#747474]">
+          <span className={`block ${typography.metadata} ${textColor.secondary}`}>
             {isLeader ? "Directors Portal" : "Volunteer Portal"}
           </span>
         </div>
@@ -84,16 +82,14 @@ export function AppSidebar() {
             <Link
               key={item.path}
               href={item.path}
-              className={`flex min-h-[48px] w-full items-center gap-3.5 rounded-xl px-4 text-left text-base transition-colors ${
+              className={`flex min-h-[48px] w-full items-center gap-3.5 rounded-xl px-4 text-left ${typography.body} font-medium transition-colors ${
                 active
-                  ? "bg-[#F7F7F7] font-medium text-[#3F3F3F] shadow-[inset_0_2px_4px_rgba(0,0,0,0.10),inset_0_-1px_0_rgba(255,255,255,0.9),0_1px_0_rgba(255,255,255,0.9)]"
-                  : "font-medium text-[#747474] hover:bg-[#F1F1F1]"
+                  ? `bg-[#F7F7F7] font-medium ${textColor.card} shadow-[inset_0_2px_4px_rgba(0,0,0,0.10),inset_0_-1px_0_rgba(255,255,255,0.9),0_1px_0_rgba(255,255,255,0.9)]`
+                  : `font-medium ${textColor.card} hover:bg-[#F1F1F1]`
               }`}
             >
               <item.icon
-                className={`h-5 w-5 shrink-0 ${
-                  active ? "text-[#3F3F3F]" : "text-[#747474]"
-                }`}
+                className={`h-5 w-5 shrink-0 ${textColor.card}`}
               />
               {item.label}
             </Link>
@@ -103,14 +99,14 @@ export function AppSidebar() {
 
       <div className="flex flex-col gap-2.5 border-t border-border px-5 py-4">
         <div className="flex items-center gap-3">
-          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary text-xs font-medium text-primary-foreground">
+          <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary ${typography.status} text-primary-foreground`}>
             {initials}
           </div>
           <div className="min-w-0 flex-1">
-            <p className="truncate text-sm font-medium text-foreground">
+            <p className={`truncate ${typography.label} ${textColor.primary}`}>
               {displayName}
             </p>
-            <p className="truncate text-xs text-muted-foreground">{email}</p>
+            <p className={`truncate ${typography.helper} ${textColor.secondary}`}>{email}</p>
           </div>
         </div>
         <Button
@@ -124,5 +120,21 @@ export function AppSidebar() {
         </Button>
       </div>
     </aside>
+  );
+}
+
+/** Fixed viewport navigation for all app-shell pages below the desktop breakpoint. */
+export function MobileNavigation() {
+  const pathname = usePathname();
+  const { data: session } = useSession();
+  const navItems = isLeaderRole(session?.user?.role) ? leaderNav : volunteerNav;
+
+  return (
+    <nav aria-label="Mobile navigation" className="fixed inset-x-0 bottom-0 z-40 flex max-w-full gap-1 overflow-x-auto border-t border-border bg-background px-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] pt-2 shadow-[0_-8px_24px_rgba(0,0,0,0.06)] md:hidden">
+      {navItems.map((item) => {
+        const active = item.path === "/dashboard" ? pathname === "/dashboard" || pathname === "/home" : pathname === item.path || pathname.startsWith(`${item.path}/`);
+        return <Link key={item.path} href={item.path} className={`flex min-w-[4.5rem] flex-1 flex-col items-center gap-1 rounded-lg px-2 py-1.5 ${typography.helper} ${active ? "bg-muted font-medium text-foreground" : "text-muted-foreground"}`}><item.icon className="h-5 w-5" />{item.label}</Link>;
+      })}
+    </nav>
   );
 }
