@@ -1,8 +1,6 @@
-import { asStringArray, formatTrack, hasStringValue, listAllRecords, recordIdOrFormula, updateRecord, type AirtableAttachment } from "./client";
-import { getPersonById } from "./people";
+import { cachedRecords, invalidateTable, asStringArray, formatTrack, getConfig, getRecord, hasStringValue, listRecordsByIds, updateRecord, type AirtableAttachment } from "./client";
 import type { ReviewUpdateMeta } from "./applications";
-import { mapActivityRecord, type ActivityFields } from "./activities";
-import { fetchAllContributions, type Contribution } from "./contributions";
+import { fetchAllActivities, mapActivityRecord, type Activity, type ActivityFields } from "./activities";
 
 // ——— Hours ———
 
@@ -11,6 +9,26 @@ export type HoursStatus = "Submitted" | "Approved" | "Rejected" | string;
 export interface HoursFields {
   "Linked Person"?: string[];
   "Linked Activity"?: string[];
+  "Linked Claim"?: string[];
+  "Linked Submissions"?: string[];
+  "Started Date"?: string;
+  "Completed Date"?: string;
+  "Submitted Date"?: string;
+  "Reviewed Date"?: string;
+  "Requested Hours"?: number;
+  "Calculated Hours"?: number;
+  Quantity?: number;
+  "Certificate Hours"?: number;
+  "Verified Hours"?: number;
+  "External Reference"?: string;
+  "Work Reference"?: string;
+  "Legacy Contribution ID"?: string;
+  Platform?: string;
+  "Work Type"?: string;
+  "Work Language"?: string;
+  "Active Minutes"?: number;
+  "Linked Assignee"?: string[];
+  "Linked Reviewer"?: string[];
   /** Historic reverse link to the Bridge Contribution that awarded this credit. */
   "Linked Contributions"?: string[];
   "Activity Details"?: string;
@@ -36,6 +54,33 @@ export interface HoursFields {
   Proof?: AirtableAttachment[];
 }
 
+let proofFieldId: string | null | undefined;
+
+/** Append proof to an existing draft Hours record using Airtable's attachment endpoint. */
+export async function uploadHoursProof(input: { hoursId: string; file: File; filename: string }): Promise<AirtableAttachment> {
+  const { apiKey, baseId } = getConfig();
+  if (proofFieldId === undefined) {
+    const response = await fetch(`https://api.airtable.com/v0/meta/bases/${baseId}/tables`, {
+      headers: { Authorization: `Bearer ${apiKey}` }, cache: "no-store",
+    });
+    if (!response.ok) throw new Error("Unable to find the Hours proof field");
+    const schema = await response.json() as { tables: Array<{ name: string; fields: Array<{ id: string; name: string }> }> };
+    proofFieldId = schema.tables.find((table) => table.name === "Hours")?.fields.find((field) => field.name === "Proof")?.id ?? null;
+  }
+  if (!proofFieldId) throw new Error("Hours is missing its Proof attachment field");
+  const response = await fetch(`https://content.airtable.com/v0/${baseId}/${input.hoursId}/${proofFieldId}/uploadAttachment`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ contentType: input.file.type, filename: input.filename, file: Buffer.from(await input.file.arrayBuffer()).toString("base64") }),
+    cache: "no-store",
+  });
+  if (!response.ok) throw new Error(`Proof upload failed (${response.status})`);
+  const body = await response.json() as { attachment?: AirtableAttachment };
+  if (!body.attachment?.url) throw new Error("Proof upload did not return a file");
+  invalidateTable("Hours");
+  return body.attachment;
+}
+
 export interface LinkedActivityInfo {
   id: string;
   name: string;
@@ -43,10 +88,15 @@ export interface LinkedActivityInfo {
   hoursValue: number;
   /** "Submission" | "Participation" | "Attendance" — Submission requires uploaded work. */
   type: string | null;
+  platform?: string;
+  submissionTarget?: number | null;
+  submissionFormat?: string | null;
 }
 
 import {
   fetchAllSubmissions,
+  mapSubmissionRecord,
+  type SubmissionFields,
   type Submission,
 } from "./submissions";
 
@@ -64,6 +114,23 @@ export interface HoursRequest {
   /** File/URL submitted as activity work. */
   activitySubmission: string | null;
   hoursRequested: number | null;
+  /** Original request, preserved when Hours is adjusted by a reviewer. */
+  requestedHours: number | null;
+  calculatedHours: number | null;
+  claimId: string | null;
+  submissionIds: string[];
+  submittedAt: string;
+  workReference: string | null;
+  externalReference: string | null;
+  legacyContributionId: string | null;
+  quantity: number | null;
+  certificateHours: number | null;
+  verifiedHours: number | null;
+  proofFiles: AirtableAttachment[];
+  reviewNotes: string | null;
+  reviewedAt: string | null;
+  platform: string | null;
+  workType: string | null;
   startDate: string | null;
   endDate: string | null;
   date: string | null;
@@ -108,30 +175,6 @@ function formatHoursDateLabel(
   return null;
 }
 
-/** Resolve either side of the Hours ↔ Contributions relationship. */
-function findContributionForHours(
-  record: { id: string; fields: HoursFields },
-  contributionById: Map<string, Contribution>,
-  contributionByHoursId: Map<string, Contribution>
-): Contribution | null {
-  const linkedContributionId = asStringArray(record.fields["Linked Contributions"])[0];
-  return (linkedContributionId ? contributionById.get(linkedContributionId) : undefined)
-    ?? contributionByHoursId.get(record.id)
-    ?? null;
-}
-
-function indexContributions(contributions: Contribution[]) {
-  const byId = new Map<string, Contribution>();
-  const byHoursId = new Map<string, Contribution>();
-  for (const contribution of contributions) {
-    byId.set(contribution.id, contribution);
-    if (contribution.hoursRecordId) {
-      byHoursId.set(contribution.hoursRecordId, contribution);
-    }
-  }
-  return { byId, byHoursId };
-}
-
 export function mapHoursRecord(
   record: {
     id: string;
@@ -139,8 +182,7 @@ export function mapHoursRecord(
     fields: HoursFields;
   },
   linkedActivity: LinkedActivityInfo | null = null,
-  submissions: Submission[] = [],
-  contribution: Contribution | null = null
+  submissions: Submission[] = []
 ): HoursRequest {
   const first = asStringArray(record.fields["First Name"])[0] ?? "";
   const last = asStringArray(record.fields["Last Name"])[0] ?? "";
@@ -149,10 +191,8 @@ export function mapHoursRecord(
     Array.isArray(proofAttachments) && proofAttachments[0]?.url
       ? proofAttachments[0].url
       : null;
-  // Contributions own the dates volunteers actually worked. Keep the Hours
-  // fields only as a compatibility fallback for historical, unlinked credit.
-  const startDate = contribution?.startedAt || record.fields["Activity Start Date"]?.trim() || null;
-  const endDate = contribution?.completedAt || record.fields["Activity End Date"]?.trim() || null;
+  const startDate = record.fields["Started Date"]?.trim() || record.fields["Activity Start Date"]?.trim() || null;
+  const endDate = record.fields["Completed Date"]?.trim() || record.fields["Activity End Date"]?.trim() || null;
   const submission = record.fields["Activity Submission"]?.trim() || null;
   const details = record.fields["Activity Details"]?.trim() || null;
   const trackFromField = formatTrack(record.fields.Track) || null;
@@ -174,6 +214,24 @@ export function mapHoursRecord(
     activitySubmission: submission,
     hoursRequested:
       typeof record.fields.Hours === "number" ? record.fields.Hours : null,
+    requestedHours: record.fields["Requested Hours"] ?? record.fields.Hours ?? null,
+    calculatedHours: record.fields["Calculated Hours"] ?? null,
+    claimId: asStringArray(record.fields["Linked Claim"])[0] ?? null,
+    submissionIds: asStringArray(record.fields["Linked Submissions"]),
+    submittedAt: record.fields["Submitted Date"] || record.fields["Request Date"] || record.createdTime,
+    workReference: record.fields["Work Reference"]?.trim() || null,
+    externalReference: record.fields["External Reference"]?.trim() || null,
+    legacyContributionId: record.fields["Legacy Contribution ID"]?.trim() || null,
+    quantity: record.fields.Quantity ?? null,
+    certificateHours: record.fields["Certificate Hours"] ?? null,
+    verifiedHours: record.fields["Verified Hours"] ?? null,
+    proofFiles: proofAttachments ?? [],
+    reviewNotes: record.fields["Review Notes"]?.trim() || null,
+    reviewedAt: record.fields["Reviewed Date"] || record.fields["Review Date"] || null,
+    platform: record.fields.Platform || linkedActivity?.platform || null,
+    workType: record.fields["Work Type"]?.trim() || (record.fields["Work Reference"]?.startsWith("BridgeBatch:")
+      ? (asStringArray(record.fields["Linked Submissions"]).length > 0 ? "Letter Writing" : "Photo Proof")
+      : null),
     startDate,
     endDate,
     date: startDate || record.fields["Request Date"]?.trim() || null,
@@ -184,7 +242,11 @@ export function mapHoursRecord(
       ? formatHoursDateLabel(record.fields["Request Date"].trim(), null)
       : null),
     proofUrl: record.fields["Proof Link"]?.trim() || proofFromAttachment,
-    status: (record.fields.Status?.trim() as HoursStatus) || "Submitted",
+    // Airtable defaults new Hours rows to Submitted. A Bridge batch is only
+    // reviewable after its evidence and submitted timestamp are finalized.
+    status: record.fields["Work Reference"]?.startsWith("BridgeBatch:") && !record.fields["Submitted Date"]
+      ? "Draft"
+      : (record.fields.Status?.trim() as HoursStatus) || "Draft",
     track: trackFromField || linkedActivity?.track || null,
     ownershipAgreement:
       typeof record.fields["Ownership Agreement"] === "boolean"
@@ -196,19 +258,18 @@ export function mapHoursRecord(
         : null,
     linkedActivityIds: linkedIds,
     linkedActivity,
-    assigneeIds: asStringArray(record.fields.Assignee),
+    assigneeIds: asStringArray(record.fields["Linked Assignee"] ?? record.fields.Assignee),
     submissions,
     missingRequiredSubmission:
-      linkedActivity?.type === "Submission" && submissions.length === 0,
+      linkedActivity?.type === "Submission" && submissions.length === 0 && !record.fields["Proof Link"] && !proofFromAttachment,
   };
 }
 
 export async function fetchAllHours(): Promise<HoursRequest[]> {
-  const [hourRecords, activities, submissions, contributions] = await Promise.all([
-    listAllRecords<HoursFields>("Hours"),
-    listAllRecords<ActivityFields>("Activities"),
+  const [hourRecords, activities, submissions] = await Promise.all([
+    cachedRecords<HoursFields>("Hours"),
+    cachedRecords<ActivityFields>("Activities"),
     fetchAllSubmissions(),
-    fetchAllContributions(),
   ]);
 
   const activityById = new Map<string, LinkedActivityInfo>();
@@ -220,6 +281,9 @@ export async function fetchAllHours(): Promise<HoursRequest[]> {
       track: mapped.track,
       hoursValue: mapped.hoursValue,
       type: mapped.type || null,
+      platform: mapped.platform,
+      submissionTarget: mapped.submissionTarget,
+      submissionFormat: mapped.submissionFormat,
     });
   }
 
@@ -233,8 +297,7 @@ export async function fetchAllHours(): Promise<HoursRequest[]> {
     }
   }
 
-  const { byId: contributionById, byHoursId: contributionByHoursId } =
-    indexContributions(contributions);
+  const submissionsById = new Map(submissions.map((submission) => [submission.id, submission]));
 
   return hourRecords.map((record) => {
     const linkedId = asStringArray(record.fields["Linked Activity"])[0];
@@ -242,107 +305,60 @@ export async function fetchAllHours(): Promise<HoursRequest[]> {
     return mapHoursRecord(
       record,
       linked,
-      submissionsByHoursId.get(record.id) ?? [],
-      findContributionForHours(record, contributionById, contributionByHoursId)
+      Array.from(new Map([
+        ...(submissionsByHoursId.get(record.id) ?? []),
+        ...asStringArray(record.fields["Linked Submissions"]).flatMap((id) => {
+          const submission = submissionsById.get(id);
+          return submission ? [submission] : [];
+        }),
+      ].map((submission) => [submission.id, submission])).values())
     );
   });
 }
 
+function linkedActivityInfo(mapped: Activity): LinkedActivityInfo {
+  return {
+    id: mapped.id,
+    name: mapped.name,
+    track: mapped.track,
+    hoursValue: mapped.hoursValue,
+    type: mapped.type || null,
+    platform: mapped.platform,
+    submissionTarget: mapped.submissionTarget,
+    submissionFormat: mapped.submissionFormat,
+  };
+}
+
 /**
- * Hours for one People record.
- *
- * Linked Person is a linked-record field (Airtable IDs), not email.
- * We resolve via People."Linked Hours" + RECORD_ID(), falling back to an
- * in-memory filter if the reverse link is unavailable.
+ * Hours rows for one person, matched on Hours."Linked Person". Reads the
+ * cached Hours, Activities and Submissions tables, so a warm request makes
+ * no Airtable calls. Pass `activities` when the caller already has them.
  */
 export async function fetchHoursForPerson(
-  personId: string
+  personId: string,
+  prefetched: { activities?: Activity[] } = {}
 ): Promise<HoursRequest[]> {
   const id = personId.trim();
-  console.log("[airtable] fetchHoursForPerson personId:", id);
   if (!id) return [];
 
-  const person = await getPersonById(id);
-  const linkedHourIds = asStringArray(person?.fields["Linked Hours"]);
-  console.log(
-    "[airtable] People.Linked Hours (linked record IDs):",
-    linkedHourIds
-  );
-
-  let hourRecords: Array<{
-    id: string;
-    createdTime: string;
-    fields: HoursFields;
-  }> = [];
-
-  if (linkedHourIds.length > 0) {
-    const idFormula = recordIdOrFormula(linkedHourIds);
-    hourRecords = await listAllRecords<HoursFields>("Hours", {
-      filterByFormula: idFormula,
-    });
-  } else {
-    console.log(
-      "[airtable] No People.Linked Hours — scanning Hours.Linked Person for",
-      id
-    );
-    const all = await listAllRecords<HoursFields>("Hours");
-    hourRecords = all.filter((record) =>
-      hasStringValue(record.fields["Linked Person"], id)
-    );
-  }
-
-  // Always keep rows whose Linked Person includes this Airtable ID
-  hourRecords = hourRecords.filter((record) =>
-    hasStringValue(record.fields["Linked Person"], id)
-  );
-
-  console.log(
-    "[airtable] fetchHoursForPerson matched Hours count:",
-    hourRecords.length
-  );
-
-  // Join the linked activities so rows are named by their activity rather than
-  // falling through to Activity Details / "Activity".
-  const linkedActivityIds = Array.from(
-    new Set(
-      hourRecords.flatMap((record) =>
-        asStringArray(record.fields["Linked Activity"])
-      )
-    )
-  );
-
-  const activityById = new Map<string, LinkedActivityInfo>();
-  const [activityRecords, contributions] = await Promise.all([
-    linkedActivityIds.length > 0
-      ? listAllRecords<ActivityFields>("Activities", {
-          filterByFormula: recordIdOrFormula(linkedActivityIds),
-        })
-      : Promise.resolve([]),
-    fetchAllContributions(),
+  const [allHours, activityList, allSubmissions] = await Promise.all([
+    cachedRecords<HoursFields>("Hours"),
+    prefetched.activities ? Promise.resolve(prefetched.activities) : fetchAllActivities(),
+    cachedRecords<SubmissionFields>("Submissions"),
   ]);
-  if (activityRecords.length > 0) {
-    for (const a of activityRecords) {
-      const mapped = mapActivityRecord(a);
-      activityById.set(mapped.id, {
-        id: mapped.id,
-        name: mapped.name,
-        track: mapped.track,
-        hoursValue: mapped.hoursValue,
-        type: mapped.type || null,
-      });
-    }
-  }
-
-  const { byId: contributionById, byHoursId: contributionByHoursId } =
-    indexContributions(contributions);
+  const hourRecords = allHours.filter((record) => hasStringValue(record.fields["Linked Person"], id));
+  const activityById = new Map(activityList.map((activity) => [activity.id, linkedActivityInfo(activity)]));
+  const submissionsById = new Map(allSubmissions.map((record) => [record.id, record]));
 
   return hourRecords.map((record) => {
     const linkedId = asStringArray(record.fields["Linked Activity"])[0];
     return mapHoursRecord(
       record,
       linkedId ? activityById.get(linkedId) ?? null : null,
-      [],
-      findContributionForHours(record, contributionById, contributionByHoursId)
+      asStringArray(record.fields["Linked Submissions"]).flatMap((submissionId) => {
+        const submission = submissionsById.get(submissionId);
+        return submission ? [mapSubmissionRecord(submission)] : [];
+      })
     );
   });
 }
@@ -356,12 +372,20 @@ export async function updateHoursStatus(
   const fields: Record<string, unknown> = {
     Status: status,
     "Review Date": today,
+    "Reviewed Date": new Date().toISOString(),
   };
 
   const options: ReviewUpdateMeta =
     typeof meta === "string" ? { reviewNote: meta } : meta ?? {};
 
-  if (options.reviewerId) fields["Reviewer"] = [options.reviewerId];
+  if (options.reviewerId) fields["Linked Reviewer"] = [options.reviewerId];
+  // Preserve the original requested amount even for pre-migration records.
+  const current = await getRecord<HoursFields>("Hours", id);
+  if (!current) throw new Error("Hours request not found");
+  if (current.fields.Status !== "Submitted") throw new Error("This hours request has already been reviewed or is not ready for review");
+  if (current.fields["Requested Hours"] == null && typeof current.fields.Hours === "number") {
+    fields["Requested Hours"] = current.fields.Hours;
+  }
   if (typeof options.hours === "number") fields["Hours"] = options.hours;
 
   // "Review Rating" / "Rejection Reason" / "Review Note" aren't fields on the
@@ -377,6 +401,23 @@ export async function updateHoursStatus(
     createdTime: "",
     fields: updated.fields as HoursFields,
   });
+}
+
+/** Uncached record and exact evidence snapshot, for authoritative review checks. */
+export async function fetchHoursRequestById(id: string): Promise<HoursRequest | null> {
+  const record = await getRecord<HoursFields>("Hours", id);
+  if (!record) return null;
+  const activityId = asStringArray(record.fields["Linked Activity"])[0];
+  const [activityRecord, submissionRecords] = await Promise.all([
+    activityId ? getRecord<ActivityFields>("Activities", activityId) : Promise.resolve(null),
+    listRecordsByIds<SubmissionFields>("Submissions", asStringArray(record.fields["Linked Submissions"])),
+  ]);
+  const activity = activityRecord ? mapActivityRecord(activityRecord) : null;
+  return mapHoursRecord(record, activity ? {
+    id: activity.id, name: activity.name, track: activity.track, hoursValue: activity.hoursValue,
+    type: activity.type, platform: activity.platform, submissionTarget: activity.submissionTarget,
+    submissionFormat: activity.submissionFormat,
+  } : null, submissionRecords.map(mapSubmissionRecord));
 }
 
 export interface PersonHoursSummary {

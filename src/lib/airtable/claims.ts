@@ -1,6 +1,7 @@
-import { asStringArray, listAllRecords } from "./client";
-import { fetchActivitiesForPerson, fetchAllActivities, type Activity } from "./activities";
-import { fetchAllContributions, type Contribution } from "./contributions";
+import { asStringArray, cachedRecords, hasStringValue } from "./client";
+import { fetchAllActivities, type Activity } from "./activities";
+import { fetchHoursForPerson, type HoursRequest } from "./hours";
+import { completionStateFromHours, hoursBelongsToClaim } from "../workReview";
 
 // ——— Claims ———
 
@@ -14,7 +15,9 @@ export interface ClaimFields {
   "Linked Activity"?: string[];
   Status?: string;
   "Claimed At"?: string;
+  "Claimed Date"?: string;
   "External Claim ID"?: string;
+  "Linked Project"?: string[];
 }
 
 export interface Claim {
@@ -32,7 +35,7 @@ export interface ClaimedActivity extends Claim {
   activity: Activity | null;
   /** True only for a temporary, read-only compatibility claim. */
   isLegacySignUp: boolean;
-  /** Derived from the Claim and its qualifying Contribution(s). */
+  /** Hours is the single source of truth for work review and completion. */
   completionState: "In progress" | "Submitted" | "Completed";
 }
 
@@ -47,8 +50,8 @@ function mapClaimRecord(record: {
     fields: record.fields,
     personId: asStringArray(record.fields["Linked Person"])[0] ?? null,
     activityId: asStringArray(record.fields["Linked Activity"])[0] ?? null,
-    status: record.fields.Status?.trim() || "Active",
-    claimedAt: record.fields["Claimed At"]?.trim() || record.createdTime,
+    status: record.fields.Status?.trim() || "Claimed",
+    claimedAt: record.fields["Claimed Date"]?.trim() || record.fields["Claimed At"]?.trim() || record.createdTime,
     externalClaimId: record.fields["External Claim ID"]?.trim() || null,
   };
 }
@@ -66,16 +69,10 @@ export async function fetchClaimsForPerson(personId: string): Promise<Claim[]> {
   if (!id) return [];
 
   try {
-    // A list-and-filter avoids depending on the name Airtable chooses for the
-    // reverse link on People. Claims are expected to be a small commitment
-    // table, and this keeps the migration compatible with the current base.
-    const records = await listAllRecords<ClaimFields>("Claims");
-    const claims: Claim[] = [];
-    for (const record of records) {
-      const claim = mapClaimRecord(record);
-      if (claim.personId === id) claims.push(claim);
-    }
-    return claims;
+    // Match the source-of-truth link on Claims. Airtable reverse-link field
+    // names on People can vary between bases and may be absent during setup.
+    const records = await cachedRecords<ClaimFields>("Claims");
+    return records.map(mapClaimRecord).filter((claim) => claim.personId === id);
   } catch (error) {
     // Deploying the app before the additive table is created must not hide
     // existing sign-ups. The setup script creates this table before backfill.
@@ -95,43 +92,39 @@ export async function fetchClaimsForPerson(personId: string): Promise<Claim[]> {
 export async function fetchClaimedActivitiesForPerson(
   personId: string
 ): Promise<ClaimedActivity[]> {
+  return (await fetchPersonWork(personId)).claimed;
+}
+
+export interface PersonWork {
+  claimed: ClaimedActivity[];
+  hours: HoursRequest[];
+}
+
+/**
+ * Everything the volunteer dashboard needs. Each table comes from the shared
+ * cache, so a warm request makes no Airtable calls.
+ */
+export async function fetchPersonWork(personId: string): Promise<PersonWork> {
   const id = personId.trim();
-  if (!id) return [];
+  if (!id) return { claimed: [], hours: [] };
 
-  const [claims, legacyActivities, contributions, activities] = await Promise.all([
-    fetchClaimsForPerson(id),
-    fetchActivitiesForPerson(id),
-    fetchAllContributions(),
+  const [allActivities, claims, hours] = await Promise.all([
     fetchAllActivities(),
+    fetchClaimsForPerson(id),
+    fetchHoursForPerson(id),
   ]);
-  const activitiesById = new Map(activities.map((activity) => [activity.id, activity]));
+  const activitiesById = new Map(allActivities.map((activity) => [activity.id, activity]));
+  const legacyActivities = allActivities.filter((activity) =>
+    hasStringValue(activity.fields["Linked Sign Ups"], id)
+  );
   const claimedActivityIds = new Set<string>();
-  const contributionByClaim = new Map<string, Contribution>();
-  const contributionByActivity = new Map<string, Contribution>();
-  for (const contribution of contributions) {
-    if (contribution.personId !== id) continue;
-    if (contribution.claimId && !contributionByClaim.has(contribution.claimId)) {
-      contributionByClaim.set(contribution.claimId, contribution);
-    }
-    if (
-      contribution.activityId &&
-      !contributionByActivity.has(contribution.activityId)
-    ) {
-      contributionByActivity.set(contribution.activityId, contribution);
-    }
-  }
-
   const completionStateFor = (claim: Pick<ClaimedActivity, "id" | "activityId" | "isLegacySignUp" | "status">): ClaimedActivity["completionState"] => {
-    if (claim.status === "Completed") return "Completed";
-    const contribution = claim.isLegacySignUp
-      ? claim.activityId ? contributionByActivity.get(claim.activityId) : undefined
-      : contributionByClaim.get(claim.id);
-    if (contribution?.status === "Approved") return "Completed";
-    if (contribution?.status === "Submitted") return "Submitted";
-    return "In progress";
+    return completionStateFromHours(claim.status, hours.filter((row) => hoursBelongsToClaim(row, claim)));
   };
 
-  const firstClass = claims.map((claim) => {
+  // Even a cancelled physical claim suppresses its old legacy signup link.
+  for (const claim of claims) if (claim.activityId) claimedActivityIds.add(claim.activityId);
+  const firstClass = claims.filter((claim) => claim.status !== "Cancelled").map((claim) => {
     if (claim.activityId) claimedActivityIds.add(claim.activityId);
     return { ...claim, activity: claim.activityId ? activitiesById.get(claim.activityId) ?? null : null, isLegacySignUp: false, completionState: completionStateFor({ ...claim, isLegacySignUp: false }) };
   });
@@ -145,18 +138,19 @@ export async function fetchClaimedActivitiesForPerson(
       fields: { "Linked Person": [id], "Linked Activity": [activity.id] },
       personId: id,
       activityId: activity.id,
-      status: activity.status || "Active",
+      // A legacy link only records that the person signed up; the activity's
+      // own status (Open, Closed, …) says nothing about this commitment.
+      status: "Claimed",
       claimedAt: activity.createdTime,
       externalClaimId: null,
       activity,
       isLegacySignUp: true,
-      completionState: completionStateFor({ id: `legacy:${activity.id}:${id}`, activityId: activity.id, isLegacySignUp: true, status: activity.status || "Active" }),
+      completionState: completionStateFor({ id: `legacy:${activity.id}:${id}`, activityId: activity.id, isLegacySignUp: true, status: "Claimed" }),
     });
   }
 
-  return [...firstClass, ...legacy].sort((a, b) =>
+  const claimed = [...firstClass, ...legacy].sort((a, b) =>
     b.claimedAt.localeCompare(a.claimedAt)
   );
+  return { claimed, hours };
 }
-
-

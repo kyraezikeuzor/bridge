@@ -20,7 +20,7 @@ export function LeaderSummary({ loading, pending }: { loading: boolean; pending:
   );
 }
 
-export function VolunteerSummary({ loading, summary, activeCount }: { loading: boolean; summary: HoursSummary | null; activeCount: number }) {
+export function VolunteerSummary({ loading, summary, activityCount }: { loading: boolean; summary: HoursSummary | null; activityCount: number }) {
   return (
     <Card variant="outline" className="border-2"><CardContent className="p-0">
       <div className="mb-4 flex items-center gap-3"><div className="flex h-9 w-9 items-center justify-center rounded-full bg-green-500"><Activity className="h-4 w-4 text-primary-foreground" /></div><h2 className={`${typography.sectionTitle} ${textColor.primary}`}>Your Activity</h2></div>
@@ -28,7 +28,7 @@ export function VolunteerSummary({ loading, summary, activeCount }: { loading: b
         <p><strong className="text-foreground">{summary.approvedThisMonth}</strong> hours approved this month</p>
         <p><strong className="text-foreground">{summary.pendingReview}</strong> submission{summary.pendingReview !== 1 ? "s" : ""} pending review</p>
         <p><strong className="text-foreground">{summary.lifetimeTotal}</strong> lifetime hours approved</p>
-        <p><strong className="text-foreground">{activeCount}</strong> activit{activeCount === 1 ? "y" : "ies"} currently in progress</p>
+        <p><strong className="text-foreground">{activityCount}</strong> activit{activityCount === 1 ? "y" : "ies"} signed up</p>
       </div>}
     </CardContent></Card>
   );

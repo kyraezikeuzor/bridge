@@ -3,14 +3,14 @@ import { auth } from "@/auth";
 import { getPersonActivities } from "@/lib/activitiesCache";
 import {
   createSubmission,
-  createContribution,
-  createSubmittedHoursFromContribution,
-  finalizeContribution,
-  fetchContributionsForClaim,
-  fetchHoursForPerson,
-  fetchSubmissionsForClaim,
+  createWorkHours,
+  coalesceHoursWork,
+  fetchHoursForClaim,
+  fetchWorkingSubmissionsForClaim,
   uploadSubmissionAttachment,
 } from "@/lib/airtable";
+import { nextWorkReference, submissionValidationError } from "@/lib/workReview";
+import { refreshHoursCache } from "@/lib/hoursCache";
 
 export const dynamic = "force-dynamic";
 
@@ -40,18 +40,16 @@ export async function GET(
       return NextResponse.json({ error: "Activity claim not found" }, { status: 404 });
     }
 
-    const [contributions, submissions] = await Promise.all([
-      fetchContributionsForClaim(personId, claim),
-      fetchSubmissionsForClaim(personId, claim),
-    ]);
-    return NextResponse.json({ claim, contributions, submissions });
+    const hours = await fetchHoursForClaim(personId, claim);
+    return NextResponse.json({ claim, hours });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";
-    return NextResponse.json({ error: message }, { status: 500 });
+    console.error("[person-activities/claim] GET handler error:", message);
+    return NextResponse.json({ error: "Unable to load this activity" }, { status: 500 });
   }
 }
 
-/** POST /api/person-activities/:claimId — save an artifact or finalize a contribution. */
+/** POST /api/person-activities/:claimId — save an artifact or finalize work into Hours. */
 export async function POST(
   request: Request,
   { params }: { params: { claimId: string } }
@@ -72,6 +70,10 @@ export async function POST(
 
     const activity = claim.activity;
     if (!activity) return NextResponse.json({ error: "Activity not found" }, { status: 404 });
+    if (claim.status === "Cancelled") return NextResponse.json({ error: "This signup has been cancelled" }, { status: 409 });
+    if (activity.completionWorkflow) {
+      return NextResponse.json({ error: "Use the current activity completion form to submit work." }, { status: 410 });
+    }
 
     const isMultipart = request.headers.get("content-type")?.includes("multipart/form-data");
     const form = isMultipart ? await request.formData() : null;
@@ -105,6 +107,10 @@ export async function POST(
       if (activity.type !== "Submission" || activity.platform !== "Bridge") {
         return NextResponse.json({ error: "This activity does not accept Bridge submissions" }, { status: 422 });
       }
+      const submittedHours = await fetchHoursForClaim(personId, claim);
+      if (submittedHours.some((row) => row.status === "Submitted" || row.status === "Approved")) {
+        return NextResponse.json({ error: "Your work is already submitted; saved evidence cannot be changed while it is reviewed" }, { status: 409 });
+      }
       const isPdf = uploadedFile instanceof File && uploadedFile.size > 0;
       if (isPdf && (uploadedFile.type !== "application/pdf" || uploadedFile.size > 10 * 1024 * 1024)) return NextResponse.json({ error: "Upload a PDF smaller than 10 MB" }, { status: 400 });
       const submissionFormat = activity.submissionFormat;
@@ -117,7 +123,7 @@ export async function POST(
       if (!submissionFormat) {
         return NextResponse.json({ error: "This activity needs a submission format before work can be added" }, { status: 422 });
       }
-      const existing = await fetchSubmissionsForClaim(personId, claim);
+      const existing = await fetchWorkingSubmissionsForClaim(personId, claim, submittedHours);
       if (activity.submissionTarget && existing.length >= activity.submissionTarget) {
         return NextResponse.json({ error: "The submission target has already been reached" }, { status: 409 });
       }
@@ -137,53 +143,26 @@ export async function POST(
       if (!ownershipAgreement) {
         return NextResponse.json({ error: "You must agree to the ownership agreement before submitting." }, { status: 422 });
       }
-      const submissions = await fetchSubmissionsForClaim(personId, claim);
-      if (!submissions.length || (activity.submissionTarget && submissions.length !== activity.submissionTarget)) {
-        const target = activity.submissionTarget;
-        const error = target
-          ? `Please submit all ${target} required submission${target === 1 ? "" : "s"} before requesting hours. You have saved ${submissions.length} of ${target}.`
-          : "Save at least one submission before requesting hours.";
+      const submissions = await fetchWorkingSubmissionsForClaim(personId, claim);
+      const error = submissionValidationError(activity.submissionTarget, activity.submissionFormat, submissions);
+      if (error) {
         return NextResponse.json({ error }, { status: 422 });
       }
-      const existingContributions = await fetchContributionsForClaim(personId, claim);
-      const existing = existingContributions.find(
-        (item) => item.status === "Submitted" || item.status === "Approved"
-      );
-      if (existing?.status === "Approved") {
-        return NextResponse.json({ contribution: existing });
-      }
-
-      let contribution = existing ?? await createContribution({
-        personId,
-        claim,
-        notes: notes || null,
-        submissionIds: submissions.map((item) => item.id),
-        quantity: submissions.length,
-        calculatedHours: activity.hoursValue,
+      const hours = await coalesceHoursWork(`claim:${claim.id}`, async () => {
+        const previous = await fetchHoursForClaim(personId, claim);
+        const existing = previous.find((row) => row.status === "Approved") || previous.find((row) => row.status === "Submitted");
+        if (existing) return existing;
+        return createWorkHours({
+          personId, claim, activity,
+          reference: nextWorkReference(claim.id, previous),
+          submissionIds: submissions.map((item) => item.id),
+          quantity: submissions.length,
+          notes, ownershipAgreement,
+          startedAt: submissions[0]?.submittedDate || undefined,
+        });
       });
-
-      // A failed response after creating Hours must remain retry-safe. The
-      // contribution id is written into Activity Details, so we can reconnect
-      // an interrupted finalization without creating a second credit record.
-      let hoursRecordId = contribution.hoursRecordId;
-      if (!hoursRecordId) {
-        const previousHours = await fetchHoursForPerson(personId);
-        const matchingHours = previousHours.find(
-          (item) => item.description?.includes(`Bridge contribution ${contribution.id}`)
-        );
-        hoursRecordId = matchingHours?.id || null;
-      }
-      if (!hoursRecordId) {
-        const hours = await createSubmittedHoursFromContribution({ contribution, activity, ownershipAgreement });
-        hoursRecordId = hours.id;
-      }
-      contribution = await finalizeContribution(contribution.id, {
-        submissionIds: submissions.map((item) => item.id),
-        quantity: submissions.length,
-        calculatedHours: activity.hoursValue,
-        hoursRecordId,
-      });
-      return NextResponse.json({ contribution }, { status: 201 });
+      await refreshHoursCache();
+      return NextResponse.json({ hours });
     }
 
     if (action !== "submit-oppia-certificate" || activity.platform !== "Oppia") {
@@ -194,31 +173,33 @@ export async function POST(
     if (certificateFile && (certificateFile.type !== "application/pdf" || certificateFile.size > 10 * 1024 * 1024)) {
       return NextResponse.json({ error: "Upload a PDF smaller than 10 MB" }, { status: 400 });
     }
-    // Use the existing artifacts table for the uploaded certificate. The
-    // finalized Contribution links that artifact as its review evidence.
-    let submissionIds: string[] | undefined;
-    if (certificateFile) {
-      const evidence = await createSubmission({ personId, claim });
-      await uploadSubmissionAttachment({
-        submissionId: evidence.id,
-        filename: certificateFile.name,
-        contentType: certificateFile.type,
-        base64: Buffer.from(await certificateFile.arrayBuffer()).toString("base64"),
+    const hours = await coalesceHoursWork(`claim:${claim.id}`, async () => {
+      const previous = await fetchHoursForClaim(personId, claim);
+      const existing = previous.find((row) => row.status === "Approved") || previous.find((row) => row.status === "Submitted");
+      if (existing) return existing;
+      let submissionIds: string[] | undefined;
+      if (certificateFile) {
+        const evidence = await createSubmission({ personId, claim });
+        await uploadSubmissionAttachment({
+          submissionId: evidence.id,
+          filename: certificateFile.name,
+          contentType: certificateFile.type,
+          base64: Buffer.from(await certificateFile.arrayBuffer()).toString("base64"),
+        });
+        submissionIds = [evidence.id];
+      }
+      return createWorkHours({
+        personId, claim, activity,
+        reference: nextWorkReference(claim.id, previous),
+        proofLink: certificateUrl || undefined,
+        notes, submissionIds, quantity: 1,
       });
-      submissionIds = [evidence.id];
-    }
-    const contribution = await createContribution({
-      personId,
-      claim,
-      workLink: certificateUrl || null,
-      notes: notes || null,
-      submissionIds,
-      quantity: 1,
-      calculatedHours: activity.hoursValue,
     });
-    return NextResponse.json({ contribution }, { status: 201 });
+    await refreshHoursCache();
+    return NextResponse.json({ hours });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";
-    return NextResponse.json({ error: message }, { status: 500 });
+    console.error("[person-activities/claim] POST handler error:", message);
+    return NextResponse.json({ error: "Unable to save your work" }, { status: 500 });
   }
 }

@@ -28,9 +28,10 @@ export default function ReviewApplicationsPage() {
   const [reply, setReply] = useState("");
   const { data, setData, loading, refreshing, refresh } =
     useCachedResource<Application[]>(
-      "applications",
+      `applications:${status}`,
       async () => {
-        const response = await fetch("/api/applications?status=All");
+        // Load only the selected status; the inbox is small, history is large.
+        const response = await fetch(`/api/applications?status=${encodeURIComponent(status)}`);
         const body = await response.json();
         if (!response.ok) throw new Error(body.error || "Failed to load applications");
         return (body.applications ?? []) as Application[];

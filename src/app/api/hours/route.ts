@@ -3,9 +3,10 @@ import { auth } from "@/auth";
 import { getHoursRequests } from "@/lib/hoursCache";
 import type { HoursStatus } from "@/lib/airtable";
 import {
-  isAssignedToReviewer,
+  canReviewHoursAssignment,
   resolveReviewerIdentity,
 } from "@/lib/reviewAssignee";
+import { isLeaderRole } from "@/lib/roles";
 
 export const dynamic = "force-dynamic";
 
@@ -16,6 +17,7 @@ export async function GET(request: NextRequest) {
   if (!user?.email && !user?.personId) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+  if (!isLeaderRole(user.role)) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   const statusParam = request.nextUrl.searchParams.get("status") || "All";
   const status =
@@ -26,11 +28,12 @@ export async function GET(request: NextRequest) {
   try {
     const reviewer = await resolveReviewerIdentity(user);
     const hours = (await getHoursRequests(status)).filter((row) =>
-      isAssignedToReviewer(row.assigneeIds, reviewer)
+      row.status !== "Draft" && canReviewHoursAssignment(row.assigneeIds, reviewer)
     );
     return NextResponse.json({ hours, count: hours.length });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";
-    return NextResponse.json({ error: message }, { status: 500 });
+    console.error("[hours] Unable to load review queue:", message);
+    return NextResponse.json({ error: "Unable to load hours requests" }, { status: 500 });
   }
 }

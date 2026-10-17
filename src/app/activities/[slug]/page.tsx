@@ -5,36 +5,22 @@ import { useParams, useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { RefreshCw, X } from "lucide-react";
 import { ActivityBody } from "@/components/activity/ActivityBody";
-import { OwnershipAgreementDialog } from "@/components/activity/ActivityWorkspaces";
-import { useToast } from "@/components/ToastProvider";
-import type { ClaimedActivity, Contribution, Submission } from "@/lib/airtable";
-import { useCachedResource } from "@/lib/useCachedResource";
+import type { ClaimedActivity, HoursRequest } from "@/lib/airtable";
+import { clearResourceCache, getCachedResource, useCachedResource } from "@/lib/useCachedResource";
 import { typography } from "@/styles/typography";
-import ActivitiesPage from "../page";
 
-type ActivityResponse = {
-  claim: ClaimedActivity;
-  contributions: Contribution[];
-  submissions: Submission[];
-};
+type ActivityResponse = { claim: ClaimedActivity; hours: HoursRequest[] };
 
 export default function ActivityViewerPage() {
   const { slug } = useParams<{ slug: string }>();
   const router = useRouter();
-  const { status: sessionStatus } = useSession();
-  const { push: toast } = useToast();
+  const { data: session, status: sessionStatus } = useSession();
   const workspaceRef = useRef<HTMLDivElement>(null);
-  const returnFocusRef = useRef<HTMLElement | null>(null);
+  const manualRefreshRef = useRef(false);
+  const [loadError, setLoadError] = useState("");
+  const [recentHoursByClaim, setRecentHoursByClaim] = useState<Record<string, HoursRequest[]>>({});
   const claimId = typeof slug === "string" ? slug : "";
-  const [entryOpen, setEntryOpen] = useState(false);
-  const [content, setContent] = useState("");
-  const [file, setFile] = useState<File | null>(null);
-  const [certificateFile, setCertificateFile] = useState<File | null>(null);
-  const [certificateUrl, setCertificateUrl] = useState("");
-  const [notes, setNotes] = useState("");
-  const [saving, setSaving] = useState(false);
-  const [agreementOpen, setAgreementOpen] = useState(false);
-  const [ownershipAgreed, setOwnershipAgreed] = useState(false);
+  const cachedClaim = getCachedResource<ClaimedActivity[]>("my-activities")?.find((item) => item.id === claimId);
   const { data, setData, loading, refreshing, refresh } = useCachedResource<ActivityResponse>(
     `my-activity:${claimId}`,
     async () => {
@@ -42,78 +28,50 @@ export default function ActivityViewerPage() {
       if (!response.ok) throw new Error("Failed to load activity");
       return (await response.json()) as ActivityResponse;
     },
-    { enabled: sessionStatus === "authenticated" && Boolean(claimId) }
-  );
-  const claim = data?.claim;
-  const activity = claim?.activity;
-  const submissions = data?.submissions ?? [];
-  const target = activity?.submissionTarget ?? null;
-  const finalized = (data?.contributions ?? []).some(
-    (item) => item.status === "Submitted" || item.status === "Approved"
+    {
+      enabled: sessionStatus === "authenticated" && Boolean(claimId),
+      onError: () => {
+        manualRefreshRef.current = false;
+        setLoadError("We couldn't load this activity. Your draft is safe; try refreshing.");
+      },
+      onSuccess: () => {
+        setLoadError("");
+        if (manualRefreshRef.current) {
+          manualRefreshRef.current = false;
+          setRecentHoursByClaim((previous) => ({ ...previous, [claimId]: [] }));
+        }
+      },
+    }
   );
   const closeWorkspace = useCallback(() => router.push("/activities"), [router]);
-
   useEffect(() => {
-    returnFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") closeWorkspace();
-    };
+    const handleKeyDown = (event: KeyboardEvent) => { if (event.key === "Escape") closeWorkspace(); };
     document.addEventListener("keydown", handleKeyDown);
     requestAnimationFrame(() => workspaceRef.current?.querySelector<HTMLElement>("button, [href], input, textarea")?.focus());
-    return () => {
-      document.removeEventListener("keydown", handleKeyDown);
-      returnFocusRef.current?.focus();
-    };
+    return () => document.removeEventListener("keydown", handleKeyDown);
   }, [closeWorkspace]);
-
-  const post = async (action: string, payload: Record<string, string> = {}) => {
-    setSaving(true);
-    try {
-      const selectedFile = action === "submit-oppia-certificate" ? certificateFile : file;
-      const hasFile = (action === "save-submission" || action === "submit-oppia-certificate") && selectedFile;
-      let body: BodyInit;
-      let headers: HeadersInit | undefined;
-      if (hasFile) {
-        const form = new FormData();
-        form.set("action", action);
-        for (const [key, value] of Object.entries(payload)) form.set(key, value);
-        form.set("file", selectedFile as File);
-        body = form;
-      } else {
-        headers = { "Content-Type": "application/json" };
-        body = JSON.stringify({ action, ...payload });
-      }
-      const response = await fetch(`/api/person-activities/${encodeURIComponent(claimId)}`, { method: "POST", headers, body });
-      if (!response.ok) throw new Error("Could not save your work");
-      const result = await response.json();
-      if (result.submission) setData((previous) => previous ? { ...previous, submissions: [...previous.submissions, result.submission] } : previous);
-      if (result.contribution) setData((previous) => previous ? { ...previous, contributions: [result.contribution, ...previous.contributions] } : previous);
-      setContent("");
-      setFile(null);
-      setCertificateFile(null);
-      setCertificateUrl("");
-      setNotes("");
-      setEntryOpen(false);
-      toast(action === "save-submission" ? "Your submission was saved." : "Your work has been sent for hours review.");
-    } catch (error) {
-      toast(error instanceof Error ? error.message : "Could not save your work", "error");
-    } finally {
-      setSaving(false);
+  const handleSubmitted = (hours: HoursRequest) => {
+    setRecentHoursByClaim((previous) => ({ ...previous, [claimId]: [hours, ...(previous[claimId] ?? []).filter((row) => row.id !== hours.id)] }));
+    setData((previous) => previous ? { ...previous, hours: [hours, ...previous.hours.filter((row) => row.id !== hours.id)] } : { claim: (data?.claim || cachedClaim)!, hours: [hours] });
+    clearResourceCache("my-activities");
+    const personId = session?.user?.personId;
+    if (personId) {
+      clearResourceCache(`person-hours:${personId}`);
+      clearResourceCache(`dashboard:volunteer:${personId}`);
     }
   };
+  const recentHours = recentHoursByClaim[claimId] ?? [];
+  const visibleHours = [...recentHours, ...(data?.hours ?? []).filter((row) => !recentHours.some((recent) => recent.id === row.id))];
 
-  const finalize = () => {
-    if (target && submissions.length < target) {
-      toast(`Please submit all ${target} required submissions before requesting hours.`, "error");
-      return;
-    }
-    if (!submissions.length) {
-      toast("Save at least one submission before requesting hours.", "error");
-      return;
-    }
-    setOwnershipAgreed(false);
-    setAgreementOpen(true);
-  };
-
-  return <><div className="fixed inset-0 overflow-hidden" aria-hidden="true"><ActivitiesPage /></div><main className="relative z-50 min-h-screen bg-black/35 sm:p-4"><dialog open aria-label="Activity workspace" className="mx-auto w-full max-w-6xl border-2 border-[#CFCFCF] bg-background p-5 text-foreground shadow-2xl sm:rounded-2xl sm:p-6"><div ref={workspaceRef} className="mx-auto flex w-full max-w-5xl flex-col gap-5"><div className="flex items-center justify-between gap-4"><button type="button" onClick={closeWorkspace} className={`inline-flex h-9 items-center gap-1.5 rounded-md px-3 ${typography.button} ${typography.buttonSecondary}`}><X className="h-4 w-4" />Close</button><button type="button" onClick={() => void refresh()} disabled={loading || refreshing} className={`inline-flex h-9 items-center rounded-md px-3 ${typography.button} ${typography.buttonSecondary}`}><RefreshCw className={`mr-1.5 h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />Refresh</button></div><ActivityBody loading={loading || sessionStatus === "loading"} activity={activity} claim={claim} submissions={submissions} target={target} content={content} file={file} entryOpen={entryOpen} saving={saving} finalized={finalized} certificateFile={certificateFile} certificateUrl={certificateUrl} notes={notes} onContent={setContent} onFile={setFile} onEntryOpen={setEntryOpen} onCertificateFile={setCertificateFile} onCertificateUrl={setCertificateUrl} onNotes={setNotes} onSave={() => void post("save-submission", { content })} onFinalize={finalize} onOppia={() => void post("submit-oppia-certificate", { certificateUrl, notes })} /></div></dialog></main>{agreementOpen ? <OwnershipAgreementDialog agreed={ownershipAgreed} onAgreedChange={setOwnershipAgreed} onCancel={() => setAgreementOpen(false)} onConfirm={() => { setAgreementOpen(false); void post("finalize-submissions", { ownershipAgreement: "true" }); }} /> : null}</>;
+  return <main className="min-h-screen bg-muted/50 px-3 py-4 sm:px-6 sm:py-10">
+    <div ref={workspaceRef} className="mx-auto w-full max-w-[760px] rounded-xl border-2 border-border bg-background p-5 shadow-sm sm:p-8">
+      <div className="mb-7 flex items-center justify-between gap-4">
+        <button type="button" onClick={closeWorkspace} className={`inline-flex min-h-11 items-center gap-2 rounded-lg border border-border bg-muted/40 px-4 ${typography.button} hover:bg-muted focus-visible:ring-2 focus-visible:ring-primary`}><X className="h-4 w-4" />Close</button>
+        <button type="button" onClick={() => { manualRefreshRef.current = true; setLoadError(""); void refresh(); }} disabled={loading || refreshing} className={`inline-flex min-h-11 items-center gap-2 rounded-lg border border-border bg-muted/40 px-4 ${typography.button} hover:bg-muted disabled:opacity-50 focus-visible:ring-2 focus-visible:ring-primary`}><RefreshCw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />Refresh</button>
+      </div>
+      {loadError && <p role="alert" className="mb-5 rounded-lg border border-destructive/30 bg-destructive/5 p-4 text-sm text-foreground">{loadError}</p>}
+      <ActivityBody key={claimId} claim={data?.claim || cachedClaim} hours={visibleHours} loading={(loading || sessionStatus === "loading") && !cachedClaim} onSubmitted={handleSubmitted} />
+      {loading && cachedClaim && <p className="mt-4 text-sm text-muted-foreground" aria-live="polite">Loading your submission history…</p>}
+    </div>
+  </main>;
 }

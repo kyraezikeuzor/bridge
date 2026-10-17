@@ -28,7 +28,10 @@ export interface PersonFields {
   "Linked Application (from Linked History)"?: string[];
   "Linked Hours"?: string[];
   "Linked Activity Sign Ups"?: string[];
-  "Linked Claims"?: string[];
+  /** Reverse links, named as they appear on People in Airtable. */
+  Claims?: string[];
+  "Linked Contributions"?: string[];
+  "Linked Submissions"?: string[];
 }
 
 export interface Person {

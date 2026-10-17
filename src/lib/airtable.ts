@@ -5,7 +5,7 @@ export * from "./airtable/applications";
 export * from "./airtable/hours";
 export * from "./airtable/submissions";
 export * from "./airtable/activities";
-export * from "./airtable/contributions";
+export * from "./airtable/hours-work";
 export * from "./airtable/claims";
 
 export interface PendingReviewCounts {

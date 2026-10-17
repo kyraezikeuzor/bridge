@@ -12,6 +12,10 @@ import { useCallback, useEffect, useRef, useState } from "react";
  */
 const store = new Map<string, unknown>();
 
+export function getCachedResource<T>(key: string): T | undefined {
+  return store.get(key) as T | undefined;
+}
+
 export function clearResourceCache(key?: string) {
   if (key) store.delete(key);
   else store.clear();

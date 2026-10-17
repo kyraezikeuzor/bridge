@@ -2,12 +2,12 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { getPersonActivities } from "@/lib/activitiesCache";
 import {
-  createExternalContribution,
-  createHoursFromContribution,
+  createWorkHours,
+  coalesceHoursWork,
+  findHoursByWorkReference,
   fetchAllActivities,
-  fetchAllContributions,
+  findHoursByExternalReference,
   getPersonByEmailDirect,
-  linkContributionHoursRecord,
 } from "@/lib/airtable";
 import { refreshHoursCache } from "@/lib/hoursCache";
 
@@ -58,7 +58,7 @@ function validSignature(signature: string, expected: string): boolean {
 export async function POST(request: NextRequest) {
   const secret = process.env.MONSOON_WEBHOOK_SECRET;
   if (!secret) {
-    console.error("[external contributions] MONSOON_WEBHOOK_SECRET is not configured");
+    console.error("[external hours] MONSOON_WEBHOOK_SECRET is not configured");
     return NextResponse.json({ error: "External sync is unavailable" }, { status: 503 });
   }
 
@@ -88,6 +88,9 @@ export async function POST(request: NextRequest) {
   } catch {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    return NextResponse.json({ error: "Payload must be an object" }, { status: 400 });
+  }
 
   const eventId = asTrimmedString(payload.eventId, 256);
   const personEmail = asTrimmedString(payload.personEmail, 320);
@@ -97,6 +100,9 @@ export async function POST(request: NextRequest) {
   const notes = asTrimmedString(payload.notes, 5000);
   const completedAt = asTrimmedString(payload.completedAt, 100);
   const hours = typeof payload.hours === "number" ? payload.hours : null;
+  if (payload.hours != null && typeof payload.hours !== "number") {
+    return NextResponse.json({ error: "hours must be a number" }, { status: 400 });
+  }
   if (!eventId || !personEmail || !projectId) {
     return NextResponse.json(
       { error: "eventId, personEmail, and projectId are required" },
@@ -118,13 +124,12 @@ export async function POST(request: NextRequest) {
   if (completedAt && Number.isNaN(new Date(completedAt).getTime())) {
     return NextResponse.json({ error: "completedAt must be an ISO date" }, { status: 400 });
   }
+  if (payload.completedAt != null && !completedAt) {
+    return NextResponse.json({ error: "completedAt must be a valid date string" }, { status: 400 });
+  }
 
-  const externalContributionId = `Monsoon:${eventId}`;
+  const externalReference = `Monsoon:${eventId}`;
   try {
-    const existing = (await fetchAllContributions()).find(
-      (contribution) => contribution.externalContributionId === externalContributionId
-    );
-
     const [person, activities] = await Promise.all([
       getPersonByEmailDirect(personEmail),
       fetchAllActivities(),
@@ -145,7 +150,7 @@ export async function POST(request: NextRequest) {
     }
     const activity = matchingActivities[0];
     const claims = await getPersonActivities(person.id);
-    const activityClaims = claims.filter((claim) => claim.activityId === activity.id);
+    const activityClaims = claims.filter((claim) => claim.activityId === activity.id && claim.status !== "Cancelled");
     const claim = externalClaimId
       ? activityClaims.find((candidate) => candidate.externalClaimId === externalClaimId)
       : activityClaims.find((candidate) => !candidate.isLegacySignUp) || activityClaims[0];
@@ -156,46 +161,26 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    if (existing) {
-      if (existing.personId !== person.id || existing.activityId !== activity.id) {
-        return NextResponse.json(
-          { error: "eventId is already associated with another contribution" },
-          { status: 409 }
-        );
+    const hoursRecord = await coalesceHoursWork(externalReference, async () => {
+      const existing = await findHoursByWorkReference(externalReference) || await findHoursByExternalReference(externalReference);
+      if (existing && (!existing.personIds.includes(person.id) || !existing.linkedActivityIds.includes(activity.id))) {
+        throw new Error("eventId is already associated with another person or activity");
       }
-      // A retry can safely finish the rare case where Airtable accepted the
-      // contribution but the subsequent Hours write did not complete.
-      if (!existing.hoursRecordId) {
-        const awardedHours = await createHoursFromContribution({ contribution: existing, activity });
-        const syncedContribution = await linkContributionHoursRecord(existing.id, awardedHours.id);
-        await refreshHoursCache();
-        return NextResponse.json({ contribution: syncedContribution, hours: awardedHours, duplicate: true });
-      }
-      return NextResponse.json({ contribution: existing, duplicate: true });
-    }
-
-    const contribution = await createExternalContribution({
-      personId: person.id,
-      claim,
-      externalContributionId,
-      workLink: workLink || null,
-      notes: notes || null,
-      verifiedHours: hours,
-      submittedAt: completedAt || null,
+      if (existing && existing.status !== "Draft") return existing;
+      return createWorkHours({
+        personId: person.id, claim, activity,
+        reference: externalReference, externalReference,
+        proofLink: workLink || undefined, notes: notes || undefined,
+        verifiedHours: hours, approved: true,
+        completedAt: completedAt ? new Date(completedAt).toISOString() : undefined,
+      });
     });
-    const awardedHours = await createHoursFromContribution({ contribution, activity });
-    const syncedContribution = await linkContributionHoursRecord(
-      contribution.id,
-      awardedHours.id
-    );
     await refreshHoursCache();
-    return NextResponse.json(
-      { contribution: syncedContribution, hours: awardedHours },
-      { status: 201 }
-    );
+    return NextResponse.json({ hours: hoursRecord });
+
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";
-    console.error("[external contributions] handler error:", message);
-    return NextResponse.json({ error: "Unable to sync external contribution" }, { status: 500 });
+    console.error("[external hours] handler error:", message);
+    return NextResponse.json({ error: "Unable to sync external work and hours" }, { status: 500 });
   }
 }

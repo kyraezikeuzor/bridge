@@ -2,17 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
 import {
   createPeopleHistoryForApplication,
+  fetchApplicationById,
   updateApplicationOnboardingDetails,
   updateApplicationStatus,
   type Application,
   type ReviewUpdateMeta,
 } from "@/lib/airtable";
-// The cached row is patched in place after a decision; the full-table refresh
-// is left to the explicit Refresh button rather than run on every review.
-import {
-  getApplications,
-  patchApplicationInCache,
-} from "@/lib/applicationsCache";
 import { findOrCreatePersonByEmail } from "@/lib/peopleCache";
 import {
   isAssignedToReviewer,
@@ -70,12 +65,8 @@ export async function POST(request: NextRequest) {
 
   try {
     const reviewer = await resolveReviewerIdentity(session.user);
-    const apps = await getApplications("All");
-    const app = apps.find(
-      (candidate) =>
-        candidate.id === applicationId &&
-        isAssignedToReviewer(candidate.assigneeIds, reviewer)
-    );
+    const found = await fetchApplicationById(applicationId);
+    const app = found && isAssignedToReviewer(found.assigneeIds, reviewer) ? found : null;
     if (!app) {
       return NextResponse.json(
         { error: "Application not found" },
@@ -154,7 +145,6 @@ async function writeDecisionStatus(
   });
 
   await updateApplicationStatus(app.id, status, meta);
-  patchApplicationInCache(app.id, { status });
   console.log(`[applications/review] Airtable status → ${status}`);
 }
 

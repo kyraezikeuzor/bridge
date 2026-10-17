@@ -15,11 +15,11 @@ type DashboardViewProps = {
   refreshing: boolean;
   pending: PendingCounts | null;
   summary: HoursSummary | null;
-  active: ClaimedActivity[];
+  activities: ClaimedActivity[];
   onRefresh: () => void;
 };
 
-export function DashboardView({ firstName, leader, loading, refreshing, pending, summary, active, onRefresh }: DashboardViewProps) {
+export function DashboardView({ firstName, leader, loading, refreshing, pending, summary, activities, onRefresh }: DashboardViewProps) {
   return (
     <AppShell>
       <div className="mx-auto flex max-w-2xl flex-col gap-8 px-6 py-10 sm:px-10 sm:py-14">
@@ -29,7 +29,7 @@ export function DashboardView({ firstName, leader, loading, refreshing, pending,
             Refresh <RefreshCw className={`ml-1.5 h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
           </Button>
         </header>
-        {leader ? <LeaderSummary loading={loading} pending={pending} /> : <><VolunteerSummary loading={loading} summary={summary} activeCount={active.length} /><ActivityList loading={loading} activities={active} /></>}
+        {leader ? <LeaderSummary loading={loading} pending={pending} /> : <><VolunteerSummary loading={loading} summary={summary} activityCount={activities.length} /><ActivityList loading={loading} activities={activities} /></>}
         <QuickLinks leader={leader} />
       </div>
     </AppShell>

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
-import { getPersonByEmail, savePersonProfile } from "@/lib/peopleCache";
-import type { Person, PersonProfileUpdate } from "@/lib/airtable";
+import { savePersonProfile } from "@/lib/peopleCache";
+import { getPersonByEmailDirect, getPersonById, type Person, type PersonProfileUpdate } from "@/lib/airtable";
 
 export const dynamic = "force-dynamic";
 
@@ -84,7 +84,9 @@ async function requirePerson(): Promise<
   const email = session?.user?.email?.trim() || "";
   if (!email) return { status: 401, error: "Not signed in" };
 
-  const person = await getPersonByEmail(email);
+  // One record lookup instead of loading all of People into memory.
+  const personId = session?.user?.personId || "";
+  const person = personId ? await getPersonById(personId) : await getPersonByEmailDirect(email);
   if (!person) return { status: 404, error: `No People record for ${email}` };
 
   return { person, email };

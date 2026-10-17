@@ -1,23 +1,19 @@
 import { NextResponse } from "next/server";
-import {
-  getPeopleCacheStats,
-  refreshPeopleCache,
-} from "@/lib/peopleCache";
+import { auth } from "@/auth";
+import { isLeaderRole } from "@/lib/roles";
+import { refreshPeopleCache } from "@/lib/peopleCache";
 
 export const dynamic = "force-dynamic";
 
-/**
- * Force-refresh the in-memory People cache from Airtable.
- * POST /api/refresh-people-cache
- */
+/** POST /api/refresh-people-cache: directors only, since a refresh reads from Airtable. */
 export async function POST() {
+  const session = await auth();
+  if (!isLeaderRole(session?.user?.role)) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
   try {
-    const size = await refreshPeopleCache();
-    return NextResponse.json({
-      ok: true,
-      cached: size,
-      ...getPeopleCacheStats(),
-    });
+    await refreshPeopleCache();
+    return NextResponse.json({ ok: true });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";
     return NextResponse.json({ error: message }, { status: 500 });

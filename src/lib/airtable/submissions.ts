@@ -1,4 +1,5 @@
-import { asStringArray, createRecord, formatTrack, getConfig, listAllRecords, type AirtableAttachment } from "./client";
+import { cachedRecords, invalidateTable, asStringArray, createRecord, formatTrack, getConfig, listRecordsByIds, type AirtableAttachment } from "./client";
+import { getPersonById, personLinkedIds } from "./people";
 
 const AIRTABLE_API_URL = "https://api.airtable.com/v0";
 type ClaimReference = { id: string; activityId: string | null; isLegacySignUp: boolean };
@@ -9,6 +10,8 @@ export interface SubmissionFields {
   Content?: string;
   "Linked Activity"?: string[];
   "Linked Hours Requests"?: string[];
+  /** Reverse of the direct Hours.Linked Submissions relationship. */
+  Hours?: string[];
   "Linked Person"?: string[];
   "Linked Claim"?: string[];
   Status?: string;
@@ -33,10 +36,11 @@ export interface Submission {
   files: SubmissionFile[];
   hoursRequestIds: string[];
   personId: string | null;
+  activityId: string | null;
   claimId: string | null;
 }
 
-function mapSubmissionRecord(record: {
+export function mapSubmissionRecord(record: {
   id: string;
   fields: SubmissionFields;
 }): Submission {
@@ -60,14 +64,15 @@ function mapSubmissionRecord(record: {
       }
       return files;
     }, []),
-    hoursRequestIds: asStringArray(record.fields["Linked Hours Requests"]),
+    hoursRequestIds: asStringArray(record.fields.Hours ?? record.fields["Linked Hours Requests"]),
     personId: asStringArray(record.fields["Linked Person"])[0] ?? null,
+    activityId: asStringArray(record.fields["Linked Activity"])[0] ?? null,
     claimId: asStringArray(record.fields["Linked Claim"])[0] ?? null,
   };
 }
 
 export async function fetchAllSubmissions(): Promise<Submission[]> {
-  const records = await listAllRecords<SubmissionFields>("Submissions");
+  const records = await cachedRecords<SubmissionFields>("Submissions");
   return records.map(mapSubmissionRecord);
 }
 
@@ -76,20 +81,20 @@ export async function fetchSubmissionsForClaim(
   personId: string,
   claim: ClaimReference
 ): Promise<Submission[]> {
-  const records = await listAllRecords<SubmissionFields>("Submissions");
-  const submissions: Submission[] = [];
-  for (const record of records) {
-    const submission = mapSubmissionRecord(record);
-    if (
-      submission.personId === personId &&
-      (claim.isLegacySignUp || submission.claimId === claim.id)
-    ) {
-      submissions.push(submission);
-    }
-  }
-  return submissions.sort((a, b) =>
-    (a.submittedDate || "").localeCompare(b.submittedDate || "")
-  );
+  // People."Linked Submissions" is the reverse of Submissions."Linked Person".
+  const ids = personLinkedIds(await getPersonById(personId), "Linked Submissions");
+  const records = await listRecordsByIds<SubmissionFields>("Submissions", ids);
+  return records
+    .map(mapSubmissionRecord)
+    .filter(
+      (submission) =>
+        submission.personId === personId &&
+        // A legacy sign-up has no physical Claim, so match its activity instead.
+        (claim.isLegacySignUp
+          ? submission.activityId === claim.activityId
+          : submission.claimId === claim.id)
+    )
+    .sort((a, b) => (a.submittedDate || "").localeCompare(b.submittedDate || ""));
 }
 
 export async function createSubmission(input: {
@@ -138,5 +143,6 @@ export async function uploadSubmissionAttachment(input: {
   if (!response.ok) throw new Error(`Airtable attachment upload failed (${response.status}): ${await response.text()}`);
   const body = await response.json() as { attachment?: { url?: string; filename?: string } };
   if (!body.attachment?.url) throw new Error("Airtable did not return the uploaded attachment");
+  invalidateTable("Submissions");
   return { url: body.attachment.url, filename: body.attachment.filename || input.filename };
 }
