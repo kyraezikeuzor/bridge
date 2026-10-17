@@ -43,6 +43,17 @@ function GoogleIcon() {
   );
 }
 
+/** Return to where the volunteer was headed (e.g. /start/<activity>), only within Bridge. */
+function safeCallbackUrl(): string {
+  if (typeof window === "undefined") return "/dashboard";
+  const raw = new URLSearchParams(window.location.search).get("callbackUrl") || "";
+  try {
+    const url = new URL(raw, window.location.origin);
+    if (url.origin === window.location.origin && url.pathname !== "/signin") return url.pathname + url.search;
+  } catch {}
+  return "/dashboard";
+}
+
 export default function SignInPage() {
   const [email, setEmail] = useState("");
   const [status, setStatus] = useState<"idle" | "loading" | "sent" | "error">(
@@ -62,7 +73,7 @@ export default function SignInPage() {
       const result = await signIn("email", {
         email: trimmed,
         redirect: false,
-        callbackUrl: "/dashboard",
+        callbackUrl: safeCallbackUrl(),
       });
 
       if (result?.error) {
@@ -129,7 +140,7 @@ export default function SignInPage() {
                     size="lg"
                     className="w-full gap-3 bg-background font-medium"
                     onClick={() =>
-                      void signIn("google", { callbackUrl: "/dashboard" })
+                      void signIn("google", { callbackUrl: safeCallbackUrl() })
                     }
                   >
                     <GoogleIcon />
