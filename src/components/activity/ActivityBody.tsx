@@ -1,93 +1,135 @@
-import { CalendarDays, Check, Clock3, ExternalLink, Link2, Plus, Tag, Zap } from "lucide-react";
-import { Badge, Card, CardContent } from "@omelora/sunrise";
-import { AttachmentFileUploader } from "@/components/AttachmentFileUploader";
-import type { ClaimedActivity, Submission } from "@/lib/airtable";
+"use client";
+
+import { useEffect, useMemo, useState } from "react";
+import { CalendarDays, CheckCircle2, Clock3, Plus, Tag, Trash2 } from "lucide-react";
+import { Badge, Button } from "@omelora/sunrise";
+import type { ClaimedActivity, HoursRequest } from "@/lib/airtable";
+import { MAX_PROOF_FILE_BYTES, MAX_PROOF_FILES } from "@/lib/activityCompletion";
 import { textColor, typography } from "@/styles/typography";
-import { Detail, ExternalWorkspace, OppiaWorkspace } from "./ActivityWorkspaces";
 
-type Activity = NonNullable<ClaimedActivity["activity"]>;
-const DATE_FORMAT = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" });
-const URL_PATTERN = /https?:\/\/[^\s]+/g;
-
-function formatDate(value: string | null | undefined) {
-  return value ? DATE_FORMAT.format(new Date(value)) : null;
-}
+type Draft = { batchId: string; letters: string[]; completedDate: string; notes: string; photoPermissions: boolean };
+const field = "mt-2 block min-h-11 w-full rounded-lg border border-border bg-background px-3 py-2 text-base text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary";
+const localToday = () => {
+  const date = new Date();
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+};
+const freshDraft = (): Draft => ({ batchId: crypto.randomUUID(), letters: ["", "", ""], completedDate: localToday(), notes: "", photoPermissions: false });
+const instructionUrl = /https?:\/\/[^\s]+/g;
 
 function Instructions({ value }: { value: string }) {
-  const steps = value.split(/\r?\n/).map((step) => step.trim().replace(/^[-•]\s*/, "")).filter(Boolean);
-  return <section className="mt-5"><h2 className={typography.sectionTitle}>Instructions</h2><ol className={`mt-2 list-decimal space-y-1.5 pl-5 ${typography.body} ${textColor.secondary}`}>{steps.map((step) => {
-    const urls = step.match(URL_PATTERN) ?? [];
-    return <li key={step}>{step.split(URL_PATTERN).map((text, index) => <span key={`${text}-${urls[index] ?? "end"}`}>{text}{urls[index] ? <a href={urls[index]} target="_blank" rel="noreferrer" aria-label="Open instruction link" className="ml-1 inline-flex align-middle text-primary hover:opacity-75"><Link2 className="h-4 w-4" /></a> : null}</span>)}</li>;
-  })}</ol></section>;
+  const steps = value.split(/\r?\n/).map((step) => step.trim().replace(/^[-•\d.)\s]+/, "")).filter(Boolean);
+  return <details className="mt-5 rounded-xl bg-muted/50 px-5 py-4" open>
+    <summary className={`${typography.cardTitle} cursor-pointer text-foreground`}>Instructions</summary>
+    <ol className={`mt-3 list-decimal space-y-2 pl-5 ${typography.bodySmall} text-foreground`}>{steps.map((step, index) => {
+      const urls = step.match(instructionUrl) ?? [];
+      return <li key={index} className="[overflow-wrap:anywhere]">{step.split(instructionUrl).map((part, partIndex) => <span key={partIndex}>{part}{urls[partIndex] && <a href={urls[partIndex]} target="_blank" rel="noreferrer" className="text-primary underline underline-offset-2 focus-visible:ring-2 focus-visible:ring-primary">{urls[partIndex]}</a>}</span>)}</li>;
+    })}</ol>
+  </details>;
 }
 
-type SubmissionPanelProps = {
-  submissions: Submission[];
-  target: number | null;
-  submissionFormat: string | null;
-  content: string;
-  file: File | null;
-  entryOpen: boolean;
-  saving: boolean;
-  finalized: boolean;
-  onContent: (value: string) => void;
-  onFile: (file: File | null) => void;
-  onEntryOpen: (open: boolean) => void;
-  onSave: () => void;
-  onFinalize: () => void;
-};
-
-function SubmissionPanel(props: SubmissionPanelProps) {
-  const { submissions, target, submissionFormat, content, file, entryOpen, saving, finalized, onContent, onFile, onEntryOpen, onSave, onFinalize } = props;
-  const reachedTarget = !target || submissions.length >= target;
-  const acceptsText = submissionFormat === "Text";
-  const acceptsFile = submissionFormat === "File";
-  const canSave = acceptsText ? Boolean(content.trim()) : acceptsFile ? Boolean(file) : false;
-  return <Card variant="outline" className="border-2"><CardContent className="p-0">
-    <div className="flex flex-wrap items-start justify-between gap-4"><div><h2 className={typography.sectionTitle}>Your Progress</h2><p className={`mt-1 ${typography.metadata} ${textColor.secondary}`}>{target ? `${submissions.length} of ${target} submissions saved` : `${submissions.length} submission${submissions.length === 1 ? "" : "s"} saved`}</p></div><Badge variant={reachedTarget ? "success" : "outline"}>{reachedTarget ? "Ready to submit" : `${Math.max((target || 0) - submissions.length, 0)} remaining`}</Badge></div>
-    <div className="mt-5 grid gap-3 sm:grid-cols-2">{submissions.map((submission, index) => <div key={submission.id} className="rounded-lg border border-border bg-muted/20 p-4"><div className={`flex items-center gap-2 ${typography.cardTitle}`}><Check className="h-4 w-4 text-primary" />Submission {index + 1} saved</div>{submission.content ? <p className={`mt-2 line-clamp-3 whitespace-pre-wrap ${typography.bodySmall} ${textColor.secondary}`}>{submission.content}</p> : null}{submission.files[0] ? <a href={submission.files[0].url} target="_blank" rel="noreferrer" className={`mt-2 inline-flex ${typography.button} text-primary hover:underline`}>View PDF <ExternalLink className="ml-1 h-3.5 w-3.5" /></a> : null}</div>)}{(!target || submissions.length < target) ? <button type="button" onClick={() => onEntryOpen(true)} className={`flex min-h-28 items-center justify-center gap-2 rounded-lg border-2 border-dashed border-border ${typography.button} hover:border-[#9A9A9A] hover:bg-muted/50`}><Plus className="h-4 w-4" />Add submission</button> : null}</div>
-    {!finalized ? <button type="button" disabled={saving} onClick={onFinalize} className={`mt-5 inline-flex h-10 items-center rounded-md bg-primary px-4 ${typography.button} text-primary-foreground disabled:opacity-50`}>{saving ? "Saving…" : "Submit & Request Hours"}</button> : <p className={`mt-5 ${typography.metadata} font-medium text-primary`}>Submitted for hours review.</p>}
-    {entryOpen ? <div className="mt-6 rounded-xl border-2 border-primary/30 bg-muted/20 p-5"><div className="flex items-center justify-between gap-3"><h3 className={typography.cardTitle}>Add submission</h3><button type="button" onClick={() => onEntryOpen(false)} className={`${typography.button} ${textColor.secondary}`}>Cancel</button></div>{acceptsText ? <label className={`mt-4 block ${typography.label}`}>Submission text<textarea value={content} onChange={(event) => onContent(event.target.value)} rows={8} maxLength={15000} className={`mt-1.5 w-full rounded-md border border-input bg-background px-3 py-2 ${typography.bodySmall}`} /></label> : null}{acceptsFile ? <AttachmentFileUploader file={file} onChange={onFile} /> : null}{!submissionFormat ? <p className={`mt-4 ${typography.bodySmall} text-destructive`}>This activity needs a submission format before work can be added.</p> : null}<button type="button" disabled={saving || !canSave} onClick={onSave} className={`mt-4 inline-flex h-10 items-center rounded-md bg-primary px-4 ${typography.button} text-primary-foreground disabled:opacity-50`}>{saving ? "Saving…" : "Save submission"}</button></div> : null}
-  </CardContent></Card>;
+function History({ hours }: { hours: HoursRequest[] }) {
+  const finalized = hours.filter((row) => row.status !== "Draft");
+  if (!finalized.length) return null;
+  return <section className="mt-8 border-t border-border pt-6"><h2 className={typography.sectionTitle}>Previous batches</h2><div className="mt-4 space-y-3">{finalized.map((row) => <article key={row.id} className="rounded-lg border border-border px-4 py-3"><div className="flex flex-wrap items-center justify-between gap-2"><p className="font-medium text-foreground">{row.workType === "Letter Writing" ? `${row.quantity ?? row.submissions.length} letters` : "Photo proof"} · {row.requestedHours ?? row.hoursRequested ?? 0} hours</p><Badge variant={row.status === "Approved" ? "success" : row.status === "Rejected" ? "destructive" : "warning"}>{row.status === "Rejected" ? "Needs changes" : row.status === "Submitted" ? "Submitted for review" : row.status}</Badge></div>{row.reviewNotes && <p className={`mt-2 whitespace-pre-wrap ${typography.bodySmall} ${textColor.secondary}`}>{row.reviewNotes}</p>}</article>)}</div></section>;
 }
 
-type ActivityBodyProps = {
-  loading: boolean;
-  activity?: Activity | null;
-  claim?: ClaimedActivity;
-  submissions: Submission[];
-  target: number | null;
-  content: string;
-  file: File | null;
-  entryOpen: boolean;
-  saving: boolean;
-  finalized: boolean;
-  certificateFile: File | null;
-  certificateUrl: string;
-  notes: string;
-  onContent: (value: string) => void;
-  onFile: (file: File | null) => void;
-  onEntryOpen: (open: boolean) => void;
-  onCertificateFile: (file: File | null) => void;
-  onCertificateUrl: (value: string) => void;
-  onNotes: (value: string) => void;
-  onSave: () => void;
-  onFinalize: () => void;
-  onOppia: () => void;
-};
+export function ActivityBody({ claim, hours, loading, onSubmitted }: { claim?: ClaimedActivity; hours: HoursRequest[]; loading: boolean; onSubmitted: (hours: HoursRequest) => void }) {
+  const activity = claim?.activity;
+  const personId = claim?.personId || "";
+  const storageKey = `bridge-completion:${personId}:${claim?.id || ""}`;
+  const [draft, setDraft] = useState<Draft>(freshDraft);
+  const [files, setFiles] = useState<File[]>([]);
+  const [confirmed, setConfirmed] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
+  const [ready, setReady] = useState(false);
+  const previews = useMemo(() => files.map((file) => ({ name: file.name, url: URL.createObjectURL(file) })), [files]);
+  useEffect(() => () => previews.forEach((preview) => URL.revokeObjectURL(preview.url)), [previews]);
 
-function WorkPanel(props: ActivityBodyProps & { activity: Activity }) {
-  const { activity } = props;
-  if (activity.type === "Submission" && activity.platform === "Bridge") return <SubmissionPanel submissions={props.submissions} target={props.target} submissionFormat={activity.submissionFormat} content={props.content} file={props.file} entryOpen={props.entryOpen} saving={props.saving} finalized={props.finalized} onContent={props.onContent} onFile={props.onFile} onEntryOpen={props.onEntryOpen} onSave={props.onSave} onFinalize={props.onFinalize} />;
-  if (activity.platform === "Oppia") return <OppiaWorkspace activity={activity} certificateFile={props.certificateFile} certificateUrl={props.certificateUrl} notes={props.notes} saving={props.saving} onCertificateFile={props.onCertificateFile} onCertificateUrl={props.onCertificateUrl} onNotes={props.onNotes} onSubmit={props.onOppia} />;
-  if (activity.platform === "Monsoon") return <ExternalWorkspace title="Complete this work in Monsoon" copy="This project is completed in Monsoon. Bridge will receive the summarized contribution when syncing is enabled." activity={activity} />;
-  if (activity.type === "Attendance") return <ExternalWorkspace title="Attendance" copy="You are registered. Attendance will be confirmed by staff after the event; no submission or hours request is needed." activity={activity} />;
-  return <ExternalWorkspace title="Participation" copy="Follow the instructions to complete this participation task. Bridge will show its appropriate completion step here as the workflow is configured." activity={activity} />;
-}
+  useEffect(() => {
+    if (!personId || !claim?.id) return;
+    try {
+      const saved = localStorage.getItem(storageKey);
+      if (saved) {
+        const parsed = JSON.parse(saved) as Draft;
+        if (parsed.batchId && Array.isArray(parsed.letters)) setDraft(parsed);
+      }
+    } catch { /* A damaged local draft does not block the form. */ }
+    setReady(true);
+  }, [personId, claim?.id, storageKey]);
+  useEffect(() => {
+    if (ready && personId) localStorage.setItem(storageKey, JSON.stringify(draft));
+  }, [draft, ready, personId, storageKey]);
 
-export function ActivityBody(props: ActivityBodyProps) {
-  if (props.loading) return <div className="space-y-4"><div className="h-40 animate-pulse rounded-xl bg-muted/60" /><div className="h-64 animate-pulse rounded-xl bg-muted/60" /></div>;
-  if (!props.claim || !props.activity) return <Card variant="outline" className="border-2 border-dashed"><CardContent className="p-0"><h1 className={typography.sectionTitle}>Activity unavailable</h1><p className={`mt-2 ${typography.bodySmall} ${textColor.secondary}`}>This activity is not available in your claims.</p></CardContent></Card>;
-  const activity = props.activity;
-  return <div><section><h1 className="text-2xl font-semibold leading-tight tracking-tight sm:text-3xl">{activity.name}</h1>{activity.description ? <p className={`mt-4 max-w-3xl ${typography.body} ${textColor.secondary}`}>{activity.description}</p> : null}</section><div className="mt-5 flex flex-wrap items-center gap-x-5 gap-y-2 border-y border-border py-2.5"><Detail icon={Tag} label="Track" value={activity.track || "General"} /><Detail icon={Clock3} label="Hours" value={`${activity.hoursValue} hours`} />{activity.type === "Submission" && props.target ? <Detail icon={Zap} label="Target" value={`${props.target} submission${props.target === 1 ? "" : "s"}`} /> : null}<Detail icon={CalendarDays} label="Deadline" value={formatDate(activity.endDate) || formatDate(activity.startDate) || "No deadline"} /></div>{activity.fields.Instructions?.trim() ? <Instructions value={activity.fields.Instructions} /> : null}<section className="mt-5 border-t border-border pt-5"><WorkPanel {...props} activity={activity} /></section></div>;
+  if (!claim || !activity) return <p className="rounded-xl border-2 border-border p-6">{loading ? "Loading your activity…" : "This activity is unavailable."}</p>;
+  const mode = activity.completionWorkflow;
+  const draftHours = hours.find((row) => row.status === "Draft" && row.workReference === `BridgeBatch:${claim.id}:${draft.batchId}`);
+  const completedLetters = draft.letters.filter((letter) => letter.trim()).length;
+  const batchSize = mode === "Letters" ? Math.floor(completedLetters / 3) * 3 : 0;
+  const canSubmitLetters = batchSize >= 3 && draft.letters.slice(0, batchSize).every((letter) => letter.trim());
+  const formError = mode === "Letters" ? (canSubmitLetters ? "" : "Write at least three complete letters to submit a batch.") : (files.length || draftHours?.proofFiles.length ? "" : "Add at least one proof picture.");
+
+  const submit = async () => {
+    if (formError) { setError(formError); return; }
+    setBusy(true);
+    setError("");
+    setSuccess("");
+    try {
+      const payload = { batchId: draft.batchId, mode, completedDate: draft.completedDate, notes: draft.notes, photoPermissions: String(draft.photoPermissions), confirmation: String(confirmed) };
+      let body: BodyInit;
+      let headers: HeadersInit | undefined;
+      if (mode === "Letters") {
+        headers = { "Content-Type": "application/json" };
+        body = JSON.stringify({ ...payload, letters: draft.letters.slice(0, batchSize) });
+      } else {
+        const form = new FormData();
+        Object.entries(payload).forEach(([key, value]) => form.set(key, value));
+        files.forEach((file) => form.append("proof", file));
+        body = form;
+      }
+      const response = await fetch(`/api/person-activities/${encodeURIComponent(claim.id)}/complete`, { method: "POST", headers, body });
+      const result = await response.json() as { hours?: HoursRequest; error?: string };
+      if (!response.ok || !result.hours) throw new Error(result.error || "Could not submit your work. Please try again.");
+      onSubmitted(result.hours);
+      setSuccess(mode === "Letters"
+        ? "Thank you for volunteering! Your letters have been sent for review. You can write more whenever you're ready."
+        : "Thank you for volunteering! Your photos have been sent for review. Come back anytime to share more completed work.");
+      const remaining = mode === "Letters" ? draft.letters.slice(batchSize) : [];
+      setDraft({ ...freshDraft(), letters: remaining.length >= 3 ? remaining : [...remaining, ...Array(3 - remaining.length).fill("")] });
+      setFiles([]);
+      setConfirmed(false);
+    } catch (issue) {
+      setError(issue instanceof Error ? issue.message : "Could not submit your work. Please try again.");
+    } finally { setBusy(false); }
+  };
+
+  const addFiles = (incoming: FileList | null) => {
+    if (!incoming) return;
+    const next = [...files, ...Array.from(incoming)];
+    if (next.length > MAX_PROOF_FILES || next.some((file) => file.size > MAX_PROOF_FILE_BYTES || !["image/jpeg", "image/png", "image/webp", "image/heic", "image/heif"].includes(file.type))) {
+      setError("Choose up to 10 JPG, PNG, WebP, or HEIC pictures under 10 MB each.");
+      return;
+    }
+    setError("");
+    setFiles(next);
+  };
+
+  return <div className="text-foreground"><header><h1 className={typography.pageTitle}>{activity.name}</h1>{activity.description && <p className={`mt-3 ${typography.body} text-foreground`}>{activity.description}</p>}</header>
+    <div className={`mt-5 flex flex-wrap gap-x-5 gap-y-2 border-y border-border py-3 ${typography.metadata} ${textColor.secondary}`}><span className="inline-flex items-center gap-1.5"><Tag className="h-4 w-4" />{activity.track || "General"}</span><span className="inline-flex items-center gap-1.5"><Clock3 className="h-4 w-4" />{mode === "Letters" ? "3 letters = 1 hour" : `${activity.hoursValue} hours per submission`}</span><span className="inline-flex items-center gap-1.5"><CalendarDays className="h-4 w-4" />{activity.endDate ? `Due ${activity.endDate.slice(0, 10)}` : "No deadline"}</span></div>
+    {activity.fields.Instructions?.trim() && <Instructions value={activity.fields.Instructions} />}
+    <section className="mt-6 rounded-xl border-2 border-border bg-background p-5 sm:p-7"><div className="border-b border-border pb-5"><h2 className={typography.sectionTitle}>{mode === "Letters" ? "Write your letters" : "Submit proof pictures"}</h2><p className={`mt-2 ${typography.bodySmall} ${textColor.secondary}`}>{mode === "Letters" ? "Write each letter here. Submit complete groups of three; you can return to write another batch." : "Upload clear pictures of the work you completed. The hours value comes from this activity."}</p></div>
+      {hours.some((row) => row.status === "Submitted") && <div className="mt-5 flex items-start gap-3 rounded-lg bg-amber-700 p-4 text-white"><Clock3 aria-hidden="true" className="mt-0.5 h-5 w-5 shrink-0" /><p className={typography.bodySmall}>{mode === "Letters" ? "Your letters are waiting for review. You're welcome to keep writing and send more letters whenever you're ready." : "Your volunteer work is waiting for review. If you've completed more work, you can share new photos below."}</p></div>}
+      {mode === "Photo proof" && activity.hoursValue === 0 && <p className="mt-5 rounded-lg bg-amber-50 p-4 text-sm text-amber-900">This activity is currently set to 0 hours. Your pictures can still be reviewed, but the request will be for 0 hours unless a director adjusts the award.</p>}
+      <div className="mt-6 space-y-5">
+        {mode === "Letters" ? <><div className="space-y-5">{draft.letters.map((letter, index) => <div key={index}><div className="flex items-center justify-between gap-3"><label htmlFor={`letter-${index}`} className={typography.label}>Letter {index + 1}</label><button type="button" onClick={() => setDraft((current) => ({ ...current, letters: current.letters.filter((_, i) => i !== index) }))} disabled={draft.letters.length <= 3 || busy} aria-label={`Remove letter ${index + 1}`} className="rounded-md p-2 text-muted-foreground hover:bg-muted focus-visible:ring-2 focus-visible:ring-primary disabled:opacity-40"><Trash2 className="h-4 w-4" /></button></div><textarea id={`letter-${index}`} rows={7} maxLength={15000} value={letter} onChange={(event) => setDraft((current) => ({ ...current, letters: current.letters.map((value, i) => i === index ? event.target.value : value) }))} className={field} /></div>)}</div><Button type="button" variant="outline" onClick={() => setDraft((current) => ({ ...current, letters: [...current.letters, ""] }))} disabled={busy || draft.letters.length >= 30}><Plus className="mr-2 h-4 w-4" />Add letter</Button><p className={`${typography.bodySmall} font-medium text-foreground`}>{completedLetters} letters written · {batchSize / 3} hours ready to submit{completedLetters > batchSize ? ` · ${completedLetters - batchSize} letter saved for the next batch` : ""}</p></> : <><label className={typography.label} htmlFor="proof-files">Proof pictures</label><input id="proof-files" type="file" accept="image/jpeg,image/png,image/webp,image/heic,image/heif" multiple onChange={(event) => { addFiles(event.target.files); event.target.value = ""; }} className={`${field} file:mr-3 file:rounded-md file:border-0 file:bg-muted file:px-3 file:py-2 file:text-sm file:font-medium`} />{(draftHours?.proofFiles.length || 0) > 0 && <p className={`${typography.bodySmall} text-foreground`}>{draftHours?.proofFiles.length} picture(s) already uploaded for this draft.</p>}<div className="grid grid-cols-2 gap-3 sm:grid-cols-3">{previews.map((preview, index) => <div key={preview.url} className="rounded-lg border border-border p-2"><img src={preview.url} alt={`Preview of ${preview.name}`} className="h-28 w-full rounded-md object-cover" /><div className="mt-2 flex items-center justify-between gap-2"><span className="truncate text-xs">{preview.name}</span><button type="button" onClick={() => setFiles((current) => current.filter((_, i) => i !== index))} aria-label={`Remove ${preview.name}`} className="rounded p-1 hover:bg-muted"><Trash2 className="h-4 w-4" /></button></div></div>)}</div><p className={`${typography.bodySmall} font-medium text-foreground`}>{activity.hoursValue} hours will be requested for this submission.</p><label className={`flex items-start gap-3 ${typography.bodySmall}`}><input type="checkbox" checked={draft.photoPermissions} onChange={(event) => setDraft((current) => ({ ...current, photoPermissions: event.target.checked }))} className="mt-1 accent-primary" />Omelora may use these pictures in impact updates. Optional.</label></>}
+        <label className={`block ${typography.label}`}>Date completed<input type="date" required max={localToday()} value={draft.completedDate} onChange={(event) => setDraft((current) => ({ ...current, completedDate: event.target.value }))} className={field} /></label>
+        <label className={`block ${typography.label}`}>Additional notes <span className={`${typography.helper} ${textColor.secondary}`}>(optional)</span><textarea rows={3} maxLength={5000} value={draft.notes} onChange={(event) => setDraft((current) => ({ ...current, notes: event.target.value }))} className={field} /></label>
+        <label className={`flex items-start gap-3 ${typography.bodySmall}`}><input type="checkbox" checked={confirmed} onChange={(event) => setConfirmed(event.target.checked)} className="mt-1 accent-primary" /><span>I confirm this work is mine and the information is accurate.</span></label>
+        {error && <p role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-800">{error}</p>}
+        {success && <div role="status" className="flex items-start gap-3 rounded-lg bg-emerald-700 p-4 text-white"><CheckCircle2 aria-hidden="true" className="mt-0.5 h-5 w-5 shrink-0" /><p className={typography.bodySmall}>{success}</p></div>}
+        <Button type="button" variant="primary" size="lg" onClick={() => void submit()} disabled={busy || !confirmed || !draft.completedDate} className="min-h-11 w-full sm:w-auto">{busy ? "Submitting your work…" : "Submit activity for review"}</Button>
+      </div>
+    </section><History hours={hours} />
+  </div>;
 }

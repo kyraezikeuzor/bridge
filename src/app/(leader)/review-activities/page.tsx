@@ -1,7 +1,8 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { ExternalLink, RefreshCw } from "lucide-react";
+import { RefreshCw } from "lucide-react";
+import Link from "next/link";
 import { Button } from "@omelora/sunrise";
 import { useToast } from "@/components/ToastProvider";
 import { ActivitiesTable } from "@/components/reviews/activities/ActivitiesTable";
@@ -9,7 +10,6 @@ import { ActivityDialog } from "@/components/reviews/activities/ActivityDialog";
 import { DiscordDialog } from "@/components/reviews/activities/DiscordDialog";
 import { toReviewActivity } from "@/components/reviews/activities/activity";
 import type { ReviewActivity } from "@/components/reviews/activities/types";
-import { addActivityLinks } from "@/data/leader-mock";
 import type { Activity } from "@/lib/airtable";
 import type { ReviewActivityStatus } from "@/lib/leader-types";
 import { useCachedResource } from "@/lib/useCachedResource";
@@ -79,11 +79,7 @@ export default function ReviewActivitiesPage() {
             <p className="mt-1 text-[#747474]">Approve, reject, and manage volunteer activities</p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            {addActivityLinks.map((link) => (
-              <a key={link.label} href={link.href} target="_blank" rel="noopener noreferrer">
-                <Button type="button" variant="outline" size="sm">{link.label}<ExternalLink className="ml-1.5 h-3.5 w-3.5" /></Button>
-              </a>
-            ))}
+            <Link href="/create-activity"><Button type="button" variant="primary" size="sm">Create Activity</Button></Link>
             <Button type="button" variant="outline" size="sm" onClick={() => void handleRefresh()} disabled={refreshing || loading}>
               Refresh <RefreshCw className={`ml-1.5 h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
             </Button>

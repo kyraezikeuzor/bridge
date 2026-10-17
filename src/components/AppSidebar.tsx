@@ -5,11 +5,13 @@ import { usePathname } from "next/navigation";
 import { signOut, useSession } from "next-auth/react";
 import {
   CircleCheck,
+  BarChart3,
   ClipboardList,
   Clock,
   Home,
   LogOut,
   Mail,
+  PlusCircle,
   UserCog,
   Zap,
 } from "lucide-react";
@@ -22,7 +24,7 @@ const LOGO_URL =
 
 const volunteerNav = [
   { label: "Home", icon: Home, path: "/dashboard" },
-  { label: "Activities", icon: Zap, path: "/activities" },
+  { label: "My Activities", icon: Zap, path: "/activities" },
   { label: "Hours", icon: ClipboardList, path: "/summary" },
   { label: "My Profile", icon: UserCog, path: "/profile" },
 ];
@@ -31,8 +33,9 @@ const leaderNav = [
   { label: "Home", icon: Home, path: "/dashboard" },
   { label: "Review Applications", icon: CircleCheck, path: "/review-applications" },
   { label: "Review Hours", icon: Clock, path: "/review-hours" },
-  { label: "Review Contributions", icon: ClipboardList, path: "/review-contributions" },
   { label: "Review Activities", icon: Zap, path: "/review-activities" },
+  { label: "Create Activity", icon: PlusCircle, path: "/create-activity" },
+  { label: "Impact & Members", icon: BarChart3, path: "/insights" },
   { label: "Volunteer Roundup", icon: Mail, path: "/roundup" },
   { label: "My Profile", icon: UserCog, path: "/profile" },
 ];

@@ -4,6 +4,7 @@ import { getHoursRequests } from "@/lib/hoursCache";
 import type { PendingReviewCounts } from "@/lib/airtable";
 import {
   isAssignedToReviewer,
+  canReviewHoursAssignment,
   resolveReviewerIdentity,
   type ReviewerIdentity,
 } from "@/lib/reviewAssignee";
@@ -32,7 +33,7 @@ export async function getPendingReviewCounts(
     isAssignedToReviewer(app.assigneeIds, resolvedReviewer)
   );
   const assignedHours = hours.filter((row) =>
-    isAssignedToReviewer(row.assigneeIds, resolvedReviewer)
+    canReviewHoursAssignment(row.assigneeIds, resolvedReviewer)
   );
   // Activities aren't per-reviewer assigned — count is org-wide.
   const activitiesInProgress = activities.filter(

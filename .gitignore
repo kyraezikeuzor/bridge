@@ -42,3 +42,6 @@ reference/
 prisma/dev.db
 prisma/dev.db-journal
 .env
+
+# Private Airtable migration snapshots (contain volunteer data)
+/.migration-backups/

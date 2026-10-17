@@ -28,6 +28,11 @@ export function isAssignedToReviewer(
     Boolean(personId && assignees.some((assignee) => assignee === personId))
   );
 }
+
+/** Assigned work stays scoped; unassigned viewer requests enter the shared leader queue. */
+export function canReviewHoursAssignment(assignees: readonly string[], reviewer: ReviewerIdentity): boolean {
+  return assignees.length === 0 || isAssignedToReviewer(assignees, reviewer);
+}
 import { getPersonByEmailDirect } from "@/lib/airtable";
 
 export type ReviewerIdentity = {

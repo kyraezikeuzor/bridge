@@ -1,5 +1,4 @@
-import { asStringArray, hasStringValue, listAllRecords, recordIdOrFormula, updateRecord } from "./client";
-import { getPersonById } from "./people";
+import { asStringArray, cachedRecords, createRecord, updateRecord } from "./client";
 
 // ——— Activities ———
 
@@ -13,6 +12,7 @@ export interface ActivityFields {
   "Submission Target"?: number;
   /** Whether Bridge should collect written text or a PDF for each submission. */
   "Submission Format"?: string;
+  "Completion Workflow"?: string;
   "Slots Total"?: number;
   "Slots Filled"?: number;
   "Start Date"?: string;
@@ -30,6 +30,14 @@ export interface ActivityFields {
   "External Project ID"?: string;
   /** Human-openable link to the configured external project. */
   "External Project URL"?: string;
+  Category?: string;
+  "Project Category"?: string;
+  "Project Guide URL"?: string;
+  "Creates Project"?: boolean;
+  "Project Capacity"?: number;
+  "Project Minimum Quantity"?: number;
+  "Linked Service Center"?: string[];
+  "Created By"?: string[];
 }
 
 export type ActivityPlatform = "Bridge" | "Oppia" | "Monsoon" | "Other";
@@ -46,6 +54,7 @@ export interface Activity {
   hoursValue: number;
   submissionTarget: number | null;
   submissionFormat: SubmissionFormat | null;
+  completionWorkflow: "Letters" | "Photo proof";
   slotsTotal: number;
   slotsFilled: number;
   languages: string[];
@@ -57,6 +66,12 @@ export interface Activity {
   platform: ActivityPlatform;
   externalProjectId: string | null;
   externalProjectUrl: string | null;
+  category: string | null;
+  createsProject: boolean;
+  projectCapacity: number;
+  projectMinimumQuantity: number | null;
+  centerId: string | null;
+  guideUrl: string | null;
 }
 
 export function mapActivityRecord(record: {
@@ -81,6 +96,10 @@ export function mapActivityRecord(record: {
         ? record.fields["Submission Target"]
         : null,
     submissionFormat: normalizeSubmissionFormat(record.fields["Submission Format"]),
+    completionWorkflow: record.fields["Completion Workflow"] === "Letters" ||
+      (record.fields["Completion Workflow"] !== "Photo proof" &&
+        (record.fields.Category === "Letters" || record.fields["Project Category"] === "Letters" || /\bletter(?:s| writing)?\b/i.test(record.fields["Activity Name"] || "")))
+      ? "Letters" : "Photo proof",
     slotsTotal:
       typeof record.fields["Slots Total"] === "number"
         ? record.fields["Slots Total"]
@@ -98,6 +117,12 @@ export function mapActivityRecord(record: {
     platform: normalizePlatform(record.fields.Platform),
     externalProjectId: record.fields["External Project ID"]?.trim() || null,
     externalProjectUrl: record.fields["External Project URL"]?.trim() || null,
+    category: record.fields["Project Category"]?.trim() || record.fields.Category?.trim() || null,
+    createsProject: record.fields["Creates Project"] === true,
+    projectCapacity: typeof record.fields["Project Capacity"] === "number" ? record.fields["Project Capacity"] : 5,
+    projectMinimumQuantity: typeof record.fields["Project Minimum Quantity"] === "number" ? record.fields["Project Minimum Quantity"] : null,
+    centerId: asStringArray(record.fields["Linked Service Center"])[0] ?? null,
+    guideUrl: record.fields["Project Guide URL"]?.trim() || null,
   };
 }
 
@@ -127,7 +152,7 @@ function normalizePlatform(value: string | undefined): ActivityPlatform {
 
 
 export async function fetchAllActivities(): Promise<Activity[]> {
-  const records = await listAllRecords<ActivityFields>("Activities");
+  const records = await cachedRecords<ActivityFields>("Activities");
   return records.map(mapActivityRecord);
 }
 
@@ -143,60 +168,8 @@ export async function updateActivityStatus(
   });
 }
 
-/**
- * Activities a person signed up for.
- *
- * Linked Sign Ups is a linked-record field (People Airtable IDs), not email.
- * Use People."Linked Activity Sign Ups" when present, otherwise filter
- * Activities where Linked Sign Ups includes personId.
- */
-export async function fetchActivitiesForPerson(
-  personId: string
-): Promise<Activity[]> {
-  const id = personId.trim();
-  console.log("[airtable] fetchActivitiesForPerson personId:", id);
-  if (!id) return [];
-
-  const person = await getPersonById(id);
-  const reverseIds = asStringArray(person?.fields["Linked Activity Sign Ups"]);
-  console.log(
-    "[airtable] People.Linked Activity Sign Ups (linked record IDs):",
-    reverseIds
-  );
-
-  let activityRecords: Array<{
-    id: string;
-    createdTime: string;
-    fields: ActivityFields;
-  }> = [];
-
-  if (reverseIds.length > 0) {
-    const idFormula = recordIdOrFormula(reverseIds);
-    activityRecords = await listAllRecords<ActivityFields>("Activities", {
-      filterByFormula: idFormula,
-    });
-  }
-
-  // Reverse link is often empty — match Linked Sign Ups (People record IDs) in memory
-  if (activityRecords.length === 0) {
-    console.log(
-      "[airtable] Scanning Activities.Linked Sign Ups for personId",
-      id
-    );
-    const all = await listAllRecords<ActivityFields>("Activities");
-    activityRecords = all.filter((record) =>
-      hasStringValue(record.fields["Linked Sign Ups"], id)
-    );
-  } else {
-    activityRecords = activityRecords.filter((record) =>
-      hasStringValue(record.fields["Linked Sign Ups"], id)
-    );
-  }
-
-  console.log(
-    "[airtable] fetchActivitiesForPerson matched Activities count:",
-    activityRecords.length
-  );
-
-  return activityRecords.map(mapActivityRecord);
+export async function createProjectActivity(fields: ActivityFields): Promise<Activity> {
+  const record = await createRecord("Activities", fields as Record<string, unknown>);
+  return mapActivityRecord({ id: record.id, createdTime: new Date().toISOString(), fields: record.fields as ActivityFields });
 }
+

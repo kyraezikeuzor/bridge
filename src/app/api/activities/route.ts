@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
+import { requireAdminDirector } from "@/lib/directorAuth";
 import { updateActivityStatus } from "@/lib/airtable";
 import {
   getAllActivities,
@@ -28,10 +29,7 @@ export async function GET() {
 
 /** PATCH /api/activities — update an activity's Airtable review status. */
 export async function PATCH(request: NextRequest) {
-  const session = await auth();
-  if (!session?.user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  if (!await requireAdminDirector()) return NextResponse.json({ error: "Director access required" }, { status: 403 });
 
   let body: { activityId?: string; status?: string };
   try {

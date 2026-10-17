@@ -24,8 +24,8 @@ const LEGACY_SIGNUP_FIELD = "Linked Sign Ups";
 const CLAIM_PERSON_FIELD = "Linked Person";
 const CLAIM_ACTIVITY_FIELD = "Linked Activity";
 const CLAIM_STATUS_FIELD = "Status";
-const CLAIMED_AT_FIELD = "Claimed At";
-const COMPLETED_AT_FIELD = "Completed At";
+const CLAIMED_AT_FIELD = "Claimed Date";
+const COMPLETED_AT_FIELD = "Completed Date";
 const CLAIM_STATUS = "Claimed";
 const apply = process.argv.slice(2).includes("--apply");
 

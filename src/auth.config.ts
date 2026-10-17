@@ -22,12 +22,9 @@ export const authConfig = {
         pathname.startsWith("/signin") ||
         pathname.startsWith("/auth/") ||
         pathname.startsWith("/api/auth") ||
-        pathname.startsWith("/api/test-person-lookup") ||
-        pathname.startsWith("/api/refresh-people-cache") ||
-        pathname.startsWith("/api/refresh-applications-cache") ||
-        pathname.startsWith("/api/refresh-hours-cache") ||
-        pathname.startsWith("/api/refresh-activities-cache") ||
-        pathname.startsWith("/sunrise-preview");
+        // These handlers authenticate the raw body with the Monsoon HMAC.
+        pathname === "/api/hours/external" ||
+        pathname === "/api/contributions/external";
 
       if (isPublic) return true;
       return !!auth?.user;

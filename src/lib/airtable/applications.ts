@@ -1,4 +1,4 @@
-import { asStringArray, createRecord, formatTrack, listAllRecords, updateRecord } from "./client";
+import { cachedRecords, escapeFormulaString, getRecord, asStringArray, createRecord, formatTrack, listAllRecords, updateRecord } from "./client";
 import { mapPersonRecord, type Person, type PersonFields } from "./people";
 
 // ——— Applications ———
@@ -100,6 +100,29 @@ export function mapApplicationRecord(record: {
 export async function fetchAllApplications(): Promise<Application[]> {
   const records = await listAllRecords<ApplicationFields>("Applications");
   return records.map(mapApplicationRecord);
+}
+
+/** A blank Status counts as Submitted, matching mapApplicationRecord. */
+const INBOX_FORMULA = "OR({Status}='Submitted', {Status}='')";
+
+/** Applications still waiting for a decision, from the shared cache. */
+export async function fetchInboxApplications(): Promise<Application[]> {
+  const records = await cachedRecords<ApplicationFields>("Applications", INBOX_FORMULA);
+  return records.map(mapApplicationRecord);
+}
+
+/** Decided applications with one status, loaded only when a director asks. */
+export async function fetchApplicationsByStatus(status: string): Promise<Application[]> {
+  const records = await listAllRecords<ApplicationFields>("Applications", {
+    filterByFormula: `{Status}='${escapeFormulaString(status)}'`,
+  });
+  return records.map(mapApplicationRecord);
+}
+
+export async function fetchApplicationById(id: string): Promise<Application | null> {
+  if (!/^rec[a-zA-Z0-9]+$/.test(id)) return null;
+  const record = await getRecord<ApplicationFields>("Applications", id);
+  return record ? mapApplicationRecord(record) : null;
 }
 
 export type ReviewUpdateMeta = {

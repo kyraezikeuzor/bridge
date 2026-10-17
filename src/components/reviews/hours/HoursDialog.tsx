@@ -128,8 +128,8 @@ export function HoursDialog({
               />
               <p className="mt-1 text-xs text-muted-foreground">
                 {row.linkedActivity?.hoursValue
-                  ? `Activity value: ${row.linkedActivity.hoursValue} · Requested: ${row.hoursRequested ?? "—"}`
-                  : `Requested: ${row.hoursRequested ?? "—"}`}
+                  ? `Activity value: ${row.linkedActivity.hoursValue} · Requested: ${row.requestedHours ?? "—"}`
+                  : `Requested: ${row.requestedHours ?? "—"}`}
               </p>
             </>
           ) : (
@@ -137,6 +137,10 @@ export function HoursDialog({
           )}
         </DetailField>
         <DetailField label="Date" value={row.dateLabel} />
+        {row.status !== "Submitted" ? <DetailField label="Originally Requested" value={row.requestedHours} /> : null}
+        {row.quantity != null ? <DetailField label="Quantity" value={row.quantity} /> : null}
+        {row.certificateHours != null ? <DetailField label="Certificate Hours" value={row.certificateHours} /> : null}
+        {row.verifiedHours != null ? <DetailField label="Externally Verified Hours" value={row.verifiedHours} /> : null}
         <DetailField label="Ownership Agreement" value={yesNo(row.ownershipAgreement)} />
         <DetailField label="Photo Permissions" value={yesNo(row.photoPermissions)} />
         <DetailField label="Proof">
@@ -145,11 +149,13 @@ export function HoursDialog({
               View Proof Link <ExternalLink className="h-3.5 w-3.5" />
             </a>
           ) : (
-            <p className="text-sm text-muted-foreground">No proof provided</p>
+            <p className="text-sm text-muted-foreground">{row.submissions.length ? "See linked submissions below" : "No proof provided"}</p>
           )}
+          {row.proofFiles.map((file) => <a key={file.url} href={file.url} target="_blank" rel="noopener noreferrer" className="mt-2 inline-flex flex-col gap-1 rounded-lg border border-border p-2 text-sm font-medium text-primary hover:underline"><img src={file.url} alt={file.filename} className="h-24 w-24 rounded-md object-cover" /><span className="max-w-24 truncate">{file.filename}</span></a>)}
         </DetailField>
         {row.description ? <DetailField label="Description" value={row.description} /> : null}
       </div>
+      {row.reviewNotes ? <section className="mt-6 border-t border-border pt-4"><DetailField label="Review Notes" value={row.reviewNotes} /></section> : null}
 
       {row.activitySubmission ? (
         <section className="mt-6 border-t border-border pt-4">

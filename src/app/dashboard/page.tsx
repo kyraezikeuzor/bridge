@@ -1,6 +1,5 @@
 "use client";
 
-import { useMemo } from "react";
 import { useSession } from "next-auth/react";
 import { DashboardView } from "@/components/dashboard/DashboardView";
 import type { DashboardData } from "@/components/dashboard/types";
@@ -42,22 +41,15 @@ export default function DashboardPage() {
         };
       }
 
-      const [hoursResponse, activitiesResponse] = await Promise.all([
-        fetch(`/api/person-hours?personId=${encodeURIComponent(personId)}`),
-        fetch("/api/person-activities"),
-      ]);
-      const [hours, activities] = await Promise.all([
-        readJson(hoursResponse),
-        readJson(activitiesResponse),
-      ]);
+      const body = await readJson(await fetch("/api/dashboard"));
       return {
         pending: null,
         hoursSummary: {
-          approvedThisMonth: hours.approvedThisMonth ?? 0,
-          pendingReview: hours.pendingReview ?? 0,
-          lifetimeTotal: hours.lifetimeTotal ?? 0,
+          approvedThisMonth: body.hoursSummary?.approvedThisMonth ?? 0,
+          pendingReview: body.hoursSummary?.pendingReview ?? 0,
+          lifetimeTotal: body.hoursSummary?.lifetimeTotal ?? 0,
         },
-        claimed: (activities.activities ?? []) as ClaimedActivity[],
+        claimed: (body.activities ?? []) as ClaimedActivity[],
       };
     },
     {
@@ -66,15 +58,11 @@ export default function DashboardPage() {
     }
   );
 
-  const active = useMemo(
-    () => (data?.claimed ?? []).filter((item) => item.completionState === "In progress"),
-    [data?.claimed]
-  );
-
   const handleRefresh = async () => {
+    // Volunteers' own changes clear the cache as they happen; only directors force a reload.
     const endpoints = leader
       ? ["/api/refresh-applications-cache", "/api/refresh-hours-cache"]
-      : ["/api/refresh-hours-cache", "/api/refresh-activities-cache"];
+      : [];
     await Promise.all(endpoints.map((endpoint) => fetch(endpoint, { method: "POST" }))).catch(() => undefined);
     await refresh();
   };
@@ -87,7 +75,7 @@ export default function DashboardPage() {
       refreshing={refreshing}
       pending={data?.pending ?? null}
       summary={data?.hoursSummary ?? null}
-      active={active}
+      activities={data?.claimed ?? []}
       onRefresh={() => void handleRefresh()}
     />
   );
