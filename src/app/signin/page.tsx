@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { signIn } from "next-auth/react";
 import { Button, Card, CardContent, Input } from "@omelora/sunrise";
 
@@ -46,12 +46,34 @@ function GoogleIcon() {
 /** Return to where the volunteer was headed (e.g. /start/<activity>), only within Bridge. */
 function safeCallbackUrl(): string {
   if (typeof window === "undefined") return "/dashboard";
-  const raw = new URLSearchParams(window.location.search).get("callbackUrl") || "";
+  const raw = new URLSearchParams(window.location.search).get("callbackUrl");
+  if (!raw) return "/dashboard";
   try {
     const url = new URL(raw, window.location.origin);
-    if (url.origin === window.location.origin && url.pathname !== "/signin") return url.pathname + url.search;
+    // "/" just redirects to /signin, so never send people there after sign-in.
+    if (
+      url.origin === window.location.origin &&
+      url.pathname !== "/" &&
+      url.pathname !== "/signin"
+    ) {
+      return url.pathname + url.search;
+    }
   } catch {}
   return "/dashboard";
+}
+
+/** Auth.js sends errors back here as ?error=…; tell the person what happened. */
+function authErrorMessage(): string | null {
+  if (typeof window === "undefined") return null;
+  const code = new URLSearchParams(window.location.search).get("error");
+  if (!code) return null;
+  if (code === "Verification") {
+    return "That sign-in link expired or was already used. Enter your email to get a new one.";
+  }
+  if (code === "AccessDenied") {
+    return "We couldn't find an approved Omelora account for that email.";
+  }
+  return "Sign-in didn't work. Enter your email to get a new link.";
 }
 
 export default function SignInPage() {
@@ -60,6 +82,10 @@ export default function SignInPage() {
     "idle"
   );
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    setErrorMessage(authErrorMessage());
+  }, []);
 
   const handleContinue = async (e: React.FormEvent) => {
     e.preventDefault();
