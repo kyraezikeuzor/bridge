@@ -15,6 +15,26 @@ export const authConfig = {
     maxAge: 30 * 24 * 60 * 60, // 30 days
   },
   callbacks: {
+    /**
+     * Where people land after sign-in. Always /dashboard, except a
+     * /start/<activity> link from the Activities board, which keeps
+     * them on that activity, and /signin after sign-out. This also fixes links already sitting in
+     * inboxes that point at "/".
+     */
+    redirect({ url, baseUrl }) {
+      try {
+        const target = new URL(url, baseUrl);
+        // /signin is allowed for sign-out. A signed-in person who reaches
+        // /signin is sent on to /dashboard by app/signin/layout.tsx.
+        if (
+          target.origin === baseUrl &&
+          (target.pathname.startsWith("/start/") || target.pathname === "/signin")
+        ) {
+          return target.toString();
+        }
+      } catch {}
+      return `${baseUrl}/dashboard`;
+    },
     authorized({ auth, request }) {
       const { pathname } = request.nextUrl;
       const isPublic =
